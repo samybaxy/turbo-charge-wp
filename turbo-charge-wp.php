@@ -516,6 +516,11 @@ class TurboChargeWP {
      * Get plugins from manual configuration
      */
     private function get_manual_plugins($available_plugins) {
+        // Ensure manual config class is loaded
+        if (!class_exists('TCWP_Manual_Config') && file_exists(TCWP_PLUGIN_DIR . 'manual-config.php')) {
+            require_once TCWP_PLUGIN_DIR . 'manual-config.php';
+        }
+        
         // Only use manual config if the class is available
         if (!class_exists('TCWP_Manual_Config')) {
             return array();

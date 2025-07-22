@@ -117,7 +117,7 @@ class TCWP_Manual_Config {
             }
         }
         
-        // Custom post types
+        // Custom post types and their archives
         $post_types = get_post_types(array(
             'public' => true,
             'show_ui' => true,
@@ -125,6 +125,22 @@ class TCWP_Manual_Config {
         ), 'objects');
         
         foreach ($post_types as $post_type) {
+            // Add archive page if it has one
+            if ($post_type->has_archive) {
+                $archive_url = get_post_type_archive_link($post_type->name);
+                if ($archive_url) {
+                    $items['archive_' . $post_type->name] = array(
+                        'type' => 'custom_post_archive',
+                        'title' => '📚 ' . $post_type->labels->name . ' Archive',
+                        'url' => $archive_url,
+                        'pattern' => parse_url($archive_url, PHP_URL_PATH),
+                        'post_type' => $post_type->name,
+                        'priority' => 4
+                    );
+                }
+            }
+            
+            // Add individual posts (limit for performance)
             $posts = get_posts(array(
                 'post_type' => $post_type->name,
                 'post_status' => 'publish',
@@ -133,13 +149,45 @@ class TCWP_Manual_Config {
             
             foreach ($posts as $post) {
                 $items[$post_type->name . '_' . $post->ID] = array(
-                    'type' => $post_type->name,
+                    'type' => 'custom_post',
                     'title' => '📋 ' . $post->post_title . ' (' . $post_type->label . ')',
                     'url' => get_permalink($post->ID),
-                    'pattern' => $post_type->name,
+                    'pattern' => parse_url(get_permalink($post->ID), PHP_URL_PATH),
                     'id' => $post->ID,
+                    'post_type' => $post_type->name,
                     'priority' => 5
                 );
+            }
+        }
+        
+        // Custom taxonomies
+        $taxonomies = get_taxonomies(array(
+            'public' => true,
+            '_builtin' => false
+        ), 'objects');
+        
+        foreach ($taxonomies as $taxonomy) {
+            $terms = get_terms(array(
+                'taxonomy' => $taxonomy->name,
+                'hide_empty' => false,
+                'number' => 20
+            ));
+            
+            if (!is_wp_error($terms) && !empty($terms)) {
+                foreach ($terms as $term) {
+                    $term_url = get_term_link($term);
+                    if (!is_wp_error($term_url)) {
+                        $items['tax_' . $term->term_id] = array(
+                            'type' => 'taxonomy',
+                            'title' => '🏷️ ' . $term->name . ' (' . $taxonomy->labels->singular_name . ')',
+                            'url' => $term_url,
+                            'pattern' => parse_url($term_url, PHP_URL_PATH),
+                            'id' => $term->term_id,
+                            'taxonomy' => $taxonomy->name,
+                            'priority' => 6
+                        );
+                    }
+                }
             }
         }
         
@@ -160,7 +208,9 @@ class TCWP_Manual_Config {
                             'url' => $menu_item->url,
                             'pattern' => $unique_pattern,
                             'id' => $menu_item->ID,
-                            'priority' => 6
+                            'menu_id' => $menu->term_id,
+                            'menu_name' => $menu->name,
+                            'priority' => 7
                         );
                     }
                 }
@@ -226,6 +276,12 @@ class TCWP_Manual_Config {
                 </a>
             </h2>
             
+            <div id="tcwp-loading" style="display: none; text-align: center; padding: 40px; color: #666;">
+            <div style="font-size: 18px; margin-bottom: 10px;">⏳ Loading configuration...</div>
+            <div style="font-size: 14px;">Please wait while we prepare your plugin settings.</div>
+        </div>
+        
+        <div id="tcwp-content" style="display: none;">
             <?php if ($current_tab === 'site_pages'): ?>
                 <?php self::render_site_pages_tab($all_site_items, $manual_config, $all_plugins); ?>
             <?php elseif ($current_tab === 'url_patterns'): ?>
@@ -233,15 +289,25 @@ class TCWP_Manual_Config {
             <?php elseif ($current_tab === 'bulk_actions'): ?>
                 <?php self::render_bulk_actions_tab($all_site_items, $manual_config, $all_plugins); ?>
             <?php endif; ?>
+        </div>
             
         </div>
         
         <style>
+        /* Prevent FOUC (Flash of Unstyled Content) */
         .tcwp-config-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
             gap: 20px;
             margin: 20px 0;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        
+        .tcwp-config-grid.loaded {
+            visibility: visible;
+            opacity: 1;
         }
         
         @media (max-width: 1200px) {
@@ -558,6 +624,32 @@ class TCWP_Manual_Config {
             var $saveStatus = $('#tcwp-save-status');
             var isCurrentlySaving = false;
             
+            // Initialize grid visibility after DOM is ready - smooth transition
+            setTimeout(function() {
+                $('#tcwp-loading').hide();
+                $('#tcwp-content').show();
+                $('.tcwp-config-grid').addClass('loaded');
+            }, 100); // Small delay to prevent flash
+            
+            // Tab persistence functionality
+            var urlParams = new URLSearchParams(window.location.search);
+            var tabFromUrl = urlParams.get('filter_tab');
+            var currentTab = tabFromUrl || localStorage.getItem('tcwp_current_tab') || 'all';
+            
+            // Store the current tab
+            localStorage.setItem('tcwp_current_tab', currentTab);
+            
+            if (currentTab !== 'all') {
+                // Activate the stored tab
+                $('.tcwp-filter-tabs button[data-filter="' + currentTab + '"]').click();
+            }
+            
+            // Store current tab when clicked
+            $('.tcwp-filter-tabs button').on('click', function() {
+                var filterType = $(this).data('filter');
+                localStorage.setItem('tcwp_current_tab', filterType);
+            });
+            
             // Search functionality
             $('#tcwp-search').on('input', function() {
                 var searchTerm = $(this).val().toLowerCase();
@@ -605,27 +697,72 @@ class TCWP_Manual_Config {
                 triggerAutosave();
             });
             
-            $('.tcwp-select-essential').click(function() {
+            $('.tcwp-select-smart').click(function() {
                 var container = $(this).closest('.tcwp-config-item');
+                var itemType = $(this).data('item-type');
+                var postType = $(this).data('post-type');
+                var taxonomy = $(this).data('taxonomy');
+                
                 container.find('input[type="checkbox"]').prop('checked', false);
                 
-                // Select essential plugins
-                var essentialPlugins = [
-                    'turbo-charge-wp',
-                    'wp-rocket',
-                    'litespeed-cache',
-                    'w3-total-cache',
-                    'wordfence',
-                    'better-wp-security',
-                    'akismet',
-                    'yoast-seo',
-                    'elementor'
-                ];
+                // Define smart plugin patterns based on content type
+                var smartPlugins = [];
                 
-                essentialPlugins.forEach(function(plugin) {
+                switch(itemType) {
+                    case 'custom_post':
+                    case 'custom_post_archive':
+                        smartPlugins = [
+                            'jet-engine',
+                            'jet-elements',
+                            'jet-blog',
+                            'elementor',
+                            'elementor-pro',
+                            'yoast-seo'
+                        ];
+                        break;
+                    case 'taxonomy':
+                        smartPlugins = [
+                            'jet-engine',
+                            'jet-smart-filters',
+                            'elementor',
+                            'yoast-seo'
+                        ];
+                        break;
+                    case 'woocommerce':
+                        smartPlugins = [
+                            'woocommerce',
+                            'jet-woo-builder',
+                            'elementor',
+                            'elementor-pro'
+                        ];
+                        break;
+                    case 'menu':
+                        smartPlugins = [
+                            'elementor',
+                            'yoast-seo'
+                        ];
+                        break;
+                    default:
+                        // Essential plugins for other types
+                        smartPlugins = [
+                            'turbo-charge-wp',
+                            'wp-rocket',
+                            'litespeed-cache',
+                            'wordfence',
+                            'yoast-seo',
+                            'elementor'
+                        ];
+                }
+                
+                // Select the smart plugins
+                smartPlugins.forEach(function(plugin) {
                     container.find('input[value*="' + plugin + '"]').prop('checked', true);
                 });
                 
+                // Update UI and trigger autosave
+                var hasSelection = container.find('input[type="checkbox"]:checked').length > 0;
+                container.removeClass('configured not-configured').addClass(hasSelection ? 'configured' : 'not-configured');
+                updateConfigurationProgress();
                 triggerAutosave();
             });
             
@@ -795,7 +932,15 @@ class TCWP_Manual_Config {
                             if (stats && stats.configured_patterns && stats.configured_patterns.length > 1) {
                                 $saveStatus.text('✅ Configuration updated. Refreshing page to apply changes...').css('color', '#00a32a');
                                 setTimeout(function() {
-                                    window.location.reload();
+                                    // Store current tab before reload
+                                    var currentTab = $('.tcwp-filter-tabs button.active').data('filter') || 'all';
+                                    localStorage.setItem('tcwp_current_tab', currentTab);
+                                    
+                                    // Show loading indicator before reload
+                                    $('#tcwp-content').fadeOut(200, function() {
+                                        $('#tcwp-loading').show();
+                                        window.location.reload();
+                                    });
                                 }, 2000);
                             } else {
                                 setTimeout(function() {
@@ -1051,6 +1196,9 @@ class TCWP_Manual_Config {
             <button type="button" data-filter="page">📄 Pages</button>
             <button type="button" data-filter="post">📝 Posts</button>
             <button type="button" data-filter="woocommerce">🛍️ WooCommerce</button>
+            <button type="button" data-filter="custom_post_archive">📚 Archives</button>
+            <button type="button" data-filter="custom_post">📋 Custom Posts</button>
+            <button type="button" data-filter="taxonomy">🏷️ Taxonomies</button>
             <button type="button" data-filter="menu">🔗 Menu Items</button>
         </div>
         
@@ -1122,7 +1270,10 @@ class TCWP_Manual_Config {
                         <div class="tcwp-quick-actions">
                             <button type="button" class="tcwp-select-all button button-small">All</button>
                             <button type="button" class="tcwp-select-none button button-small">None</button>
-                            <button type="button" class="tcwp-select-essential button button-small">Essential</button>
+                            <button type="button" class="tcwp-select-smart button button-small" 
+                                    data-item-type="<?php echo esc_attr($item['type']); ?>"
+                                    data-post-type="<?php echo esc_attr($item['post_type'] ?? ''); ?>"
+                                    data-taxonomy="<?php echo esc_attr($item['taxonomy'] ?? ''); ?>">Smart</button>
                         </div>
                         
                         <h4><?php echo esc_html($item['title']); ?></h4>
@@ -1565,32 +1716,92 @@ class TCWP_Manual_Config {
         $manual_config = get_option('tcwp_manual_config', array());
         $required_plugins = array();
         
-        // First, try exact URL path match
+        // Parse the current URL
         $parsed_url = parse_url($url);
         $path = $parsed_url['path'] ?? '/';
         
+        // First, try exact URL path match
         if (isset($manual_config[$path])) {
-            return $manual_config[$path];
+            $required_plugins = array_merge($required_plugins, $manual_config[$path]);
         }
         
-        // Then try pattern matching (including unique menu patterns)
+        // Then try pattern matching
         foreach ($manual_config as $pattern => $plugins) {
+            // Skip if we already found an exact match for this pattern
+            if ($pattern === $path) {
+                continue;
+            }
+            
             // Handle unique menu patterns (pattern::menu_ID)
             if (strpos($pattern, '::menu_') !== false) {
                 $pattern_parts = explode('::', $pattern);
                 $menu_path = $pattern_parts[0];
+                
+                // Match menu items by their target URL path
                 if ($path === $menu_path) {
                     $required_plugins = array_merge($required_plugins, $plugins);
                 }
             } else {
-                // Regular pattern matching
-                if (strpos($url, $pattern) !== false) {
+                // Regular pattern matching - check if pattern is contained in URL
+                if (strpos($url, $pattern) !== false || strpos($path, $pattern) !== false) {
                     $required_plugins = array_merge($required_plugins, $plugins);
                 }
             }
         }
         
         return array_unique($required_plugins);
+    }
+    
+    /**
+     * Get smart plugin suggestions based on content type
+     */
+    public static function get_smart_plugin_suggestions($item_type, $post_type = '', $taxonomy = '') {
+        $suggestions = array();
+        
+        // Jet Engines patterns
+        $jet_plugins = array(
+            'jet-engine/jet-engine.php',
+            'jet-elements/jet-elements.php',
+            'jet-blog/jet-blog.php',
+            'jet-smart-filters/jet-smart-filters.php'
+        );
+        
+        switch ($item_type) {
+            case 'custom_post':
+            case 'custom_post_archive':
+                $suggestions = array_merge($suggestions, $jet_plugins);
+                
+                // Add Elementor if custom post type likely uses it
+                $suggestions[] = 'elementor/elementor.php';
+                $suggestions[] = 'elementor-pro/elementor-pro.php';
+                break;
+                
+            case 'taxonomy':
+                $suggestions = array_merge($suggestions, $jet_plugins);
+                
+                // Taxonomy pages often need filtering
+                $suggestions[] = 'jet-smart-filters/jet-smart-filters.php';
+                break;
+                
+            case 'menu':
+                // Menu items could be anything, keep it minimal
+                $suggestions = array(
+                    'elementor/elementor.php',
+                    'yoast-seo/wp-seo.php'
+                );
+                break;
+                
+            case 'woocommerce':
+                $suggestions = array(
+                    'woocommerce/woocommerce.php',
+                    'jet-woo-builder/jet-woo-builder.php',
+                    'elementor/elementor.php',
+                    'elementor-pro/elementor-pro.php'
+                );
+                break;
+        }
+        
+        return array_unique($suggestions);
     }
     
     /**
