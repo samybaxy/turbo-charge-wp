@@ -255,8 +255,10 @@ class TCWP_Manual_Config {
             error_log('TCWP Debug: All site items count: ' . count($all_site_items));
         }
         
-        // Get current tab
+        // Get current tab and preserve filter tab
         $current_tab = $_GET['tab'] ?? 'site_pages';
+        $current_filter_tab = $_GET['filter_tab'] ?? 'all';
+        $filter_tab_param = ($current_filter_tab !== 'all') ? '&filter_tab=' . urlencode($current_filter_tab) : '';
         
         ?>
         <div class="wrap">
@@ -265,7 +267,7 @@ class TCWP_Manual_Config {
             
             <!-- Tab Navigation -->
             <h2 class="nav-tab-wrapper">
-                <a href="?page=tcwp-manual-config&tab=site_pages" class="nav-tab <?php echo $current_tab === 'site_pages' ? 'nav-tab-active' : ''; ?>">
+                <a href="?page=tcwp-manual-config&tab=site_pages<?php echo $filter_tab_param; ?>" class="nav-tab <?php echo $current_tab === 'site_pages' ? 'nav-tab-active' : ''; ?>">
                     📄 Site Pages & Posts
                 </a>
                 <a href="?page=tcwp-manual-config&tab=url_patterns" class="nav-tab <?php echo $current_tab === 'url_patterns' ? 'nav-tab-active' : ''; ?>">
@@ -633,22 +635,32 @@ class TCWP_Manual_Config {
             
             // Tab persistence functionality
             var urlParams = new URLSearchParams(window.location.search);
-            var tabFromUrl = urlParams.get('filter_tab');
-            var currentTab = tabFromUrl || localStorage.getItem('tcwp_current_tab') || 'all';
+            var currentTab = urlParams.get('filter_tab') || 'all';
             
-            // Store the current tab
-            localStorage.setItem('tcwp_current_tab', currentTab);
-            
+            // Activate the current tab on page load
             if (currentTab !== 'all') {
-                // Activate the stored tab
-                $('.tcwp-filter-tabs button[data-filter="' + currentTab + '"]').click();
+                $('.tcwp-filter-tabs button[data-filter="' + currentTab + '"]').addClass('active');
+                $('.tcwp-filter-tabs button[data-filter="all"]').removeClass('active');
+                $('.tcwp-config-item').hide();
+                $('.tcwp-config-item[data-type="' + currentTab + '"]').show();
             }
             
-            // Store current tab when clicked
+            // Update URL when tab is clicked
             $('.tcwp-filter-tabs button').on('click', function() {
                 var filterType = $(this).data('filter');
-                localStorage.setItem('tcwp_current_tab', filterType);
+                updateUrlWithTab(filterType);
             });
+            
+            // Function to update URL with current tab
+            function updateUrlWithTab(tab) {
+                var url = new URL(window.location);
+                if (tab === 'all') {
+                    url.searchParams.delete('filter_tab');
+                } else {
+                    url.searchParams.set('filter_tab', tab);
+                }
+                window.history.replaceState({}, '', url);
+            }
             
             // Search functionality
             $('#tcwp-search').on('input', function() {
@@ -932,14 +944,19 @@ class TCWP_Manual_Config {
                             if (stats && stats.configured_patterns && stats.configured_patterns.length > 1) {
                                 $saveStatus.text('✅ Configuration updated. Refreshing page to apply changes...').css('color', '#00a32a');
                                 setTimeout(function() {
-                                    // Store current tab before reload
+                                    // Preserve current tab in URL before reload
                                     var currentTab = $('.tcwp-filter-tabs button.active').data('filter') || 'all';
-                                    localStorage.setItem('tcwp_current_tab', currentTab);
+                                    var reloadUrl = new URL(window.location);
+                                    if (currentTab !== 'all') {
+                                        reloadUrl.searchParams.set('filter_tab', currentTab);
+                                    } else {
+                                        reloadUrl.searchParams.delete('filter_tab');
+                                    }
                                     
                                     // Show loading indicator before reload
                                     $('#tcwp-content').fadeOut(200, function() {
                                         $('#tcwp-loading').show();
-                                        window.location.reload();
+                                        window.location.href = reloadUrl.toString();
                                     });
                                 }, 2000);
                             } else {
