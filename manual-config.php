@@ -1727,7 +1727,7 @@ class TCWP_Manual_Config {
     }
     
     /**
-     * Get manual configuration for a URL (enhanced)
+     * Get manual configuration for a URL (enhanced with taxonomy support)
      */
     public static function get_manual_plugins_for_url($url) {
         $manual_config = get_option('tcwp_manual_config', array());
@@ -1737,9 +1737,21 @@ class TCWP_Manual_Config {
         $parsed_url = parse_url($url);
         $path = $parsed_url['path'] ?? '/';
         
+        // Debug logging
+        error_log('TCWP: Getting manual plugins for URL: ' . $url . ' (path: ' . $path . ')');
+        error_log('TCWP: Manual config patterns: ' . print_r(array_keys($manual_config), true));
+        
         // First, try exact URL path match
         if (isset($manual_config[$path])) {
             $required_plugins = array_merge($required_plugins, $manual_config[$path]);
+            error_log('TCWP: Found exact path match for: ' . $path);
+        }
+        
+        // Enhanced taxonomy support: Check if this is a taxonomy URL
+        $taxonomy_plugins = self::get_taxonomy_plugins_for_url($url, $manual_config);
+        if (!empty($taxonomy_plugins)) {
+            $required_plugins = array_merge($required_plugins, $taxonomy_plugins);
+            error_log('TCWP: Added taxonomy plugins: ' . print_r($taxonomy_plugins, true));
         }
         
         // Then try pattern matching
@@ -1757,11 +1769,161 @@ class TCWP_Manual_Config {
                 // Match menu items by their target URL path
                 if ($path === $menu_path) {
                     $required_plugins = array_merge($required_plugins, $plugins);
+                    error_log('TCWP: Found menu pattern match: ' . $pattern);
                 }
             } else {
-                // Regular pattern matching - check if pattern is contained in URL
+                // Enhanced pattern matching - better URL handling
+                $pattern_matches = false;
+                
+                // Try direct string matching first
                 if (strpos($url, $pattern) !== false || strpos($path, $pattern) !== false) {
+                    $pattern_matches = true;
+                }
+                
+                // For taxonomy patterns, also try matching URL segments
+                if (!$pattern_matches && strpos($pattern, '/') !== false) {
+                    // Clean both paths for comparison
+                    $clean_pattern = trim($pattern, '/');
+                    $clean_path = trim($path, '/');
+                    
+                    // Check if path starts with pattern (for hierarchical URLs)
+                    if (strpos($clean_path, $clean_pattern) === 0) {
+                        $pattern_matches = true;
+                    }
+                    
+                    // Check if any path segment matches
+                    $path_segments = explode('/', $clean_path);
+                    $pattern_segments = explode('/', $clean_pattern);
+                    
+                    foreach ($pattern_segments as $pattern_segment) {
+                        if (in_array($pattern_segment, $path_segments)) {
+                            $pattern_matches = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if ($pattern_matches) {
                     $required_plugins = array_merge($required_plugins, $plugins);
+                    error_log('TCWP: Found pattern match: ' . $pattern . ' for URL: ' . $url);
+                }
+            }
+        }
+        
+        $final_plugins = array_unique($required_plugins);
+        error_log('TCWP: Final plugins for URL ' . $url . ': ' . print_r($final_plugins, true));
+        
+        return $final_plugins;
+    }
+    
+    /**
+     * Get taxonomy-specific plugins with parent taxonomy inheritance
+     */
+    private static function get_taxonomy_plugins_for_url($url, $manual_config) {
+        $required_plugins = array();
+        
+        // Parse the URL to identify if this is a taxonomy page
+        $parsed_url = parse_url($url);
+        $path = $parsed_url['path'] ?? '/';
+        
+        // Remove leading/trailing slashes for consistent matching
+        $clean_path = trim($path, '/');
+        $path_segments = explode('/', $clean_path);
+        
+        // Try to identify the current taxonomy and term from WordPress
+        global $wp_query, $wp_rewrite;
+        
+        // Check if we can determine the current taxonomy context
+        $current_taxonomy = null;
+        $current_term = null;
+        
+        // Try to get from global query if available (works on actual pages)
+        if (is_tax()) {
+            $current_taxonomy = get_query_var('taxonomy');
+            $current_term = get_query_var('term');
+        } elseif (is_category()) {
+            $current_taxonomy = 'category';
+            $current_term = get_query_var('category_name');
+        } elseif (is_tag()) {
+            $current_taxonomy = 'post_tag';
+            $current_term = get_query_var('tag');
+        }
+        
+        // If we couldn't determine from query vars, try URL pattern matching
+        if (!$current_taxonomy) {
+            // Get all custom taxonomies to check against URL
+            $taxonomies = get_taxonomies(array('public' => true), 'objects');
+            
+            foreach ($taxonomies as $taxonomy_name => $taxonomy_obj) {
+                // Check if taxonomy name appears in URL path
+                if (in_array($taxonomy_name, $path_segments)) {
+                    $current_taxonomy = $taxonomy_name;
+                    
+                    // Try to identify the term slug (usually follows taxonomy in URL)
+                    $taxonomy_index = array_search($taxonomy_name, $path_segments);
+                    if (isset($path_segments[$taxonomy_index + 1])) {
+                        $current_term = $path_segments[$taxonomy_index + 1];
+                    }
+                    break;
+                }
+                
+                // Also check rewrite slug if different from taxonomy name
+                if ($taxonomy_obj->rewrite && isset($taxonomy_obj->rewrite['slug'])) {
+                    $rewrite_slug = $taxonomy_obj->rewrite['slug'];
+                    if (in_array($rewrite_slug, $path_segments)) {
+                        $current_taxonomy = $taxonomy_name;
+                        
+                        $slug_index = array_search($rewrite_slug, $path_segments);
+                        if (isset($path_segments[$slug_index + 1])) {
+                            $current_term = $path_segments[$slug_index + 1];
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if ($current_taxonomy) {
+            error_log('TCWP: Detected taxonomy: ' . $current_taxonomy . ', term: ' . ($current_term ?: 'archive'));
+            
+            // 1. First, apply taxonomy archive settings (parent settings)
+            $taxonomy_archive_patterns = array();
+            
+            // Look for patterns that match this taxonomy
+            foreach ($manual_config as $pattern => $plugins) {
+                // Check for exact taxonomy archive pattern
+                if ($pattern === $current_taxonomy) {
+                    $required_plugins = array_merge($required_plugins, $plugins);
+                    $taxonomy_archive_patterns[] = $pattern;
+                    error_log('TCWP: Applied taxonomy archive pattern: ' . $pattern);
+                }
+                
+                // Check for patterns containing the taxonomy name
+                if (strpos($pattern, $current_taxonomy) !== false) {
+                    // Make sure it's a reasonable match (not just substring)
+                    $pattern_segments = explode('/', trim($pattern, '/'));
+                    if (in_array($current_taxonomy, $pattern_segments)) {
+                        $required_plugins = array_merge($required_plugins, $plugins);
+                        $taxonomy_archive_patterns[] = $pattern;
+                        error_log('TCWP: Applied taxonomy pattern: ' . $pattern);
+                    }
+                }
+            }
+            
+            // 2. Then, apply specific term settings (if we have a specific term)
+            if ($current_term) {
+                foreach ($manual_config as $pattern => $plugins) {
+                    // Look for patterns that include both taxonomy and term
+                    if (strpos($pattern, $current_taxonomy) !== false && strpos($pattern, $current_term) !== false) {
+                        $required_plugins = array_merge($required_plugins, $plugins);
+                        error_log('TCWP: Applied specific term pattern: ' . $pattern);
+                    }
+                    
+                    // Also check for term-specific patterns
+                    if (strpos($pattern, $current_term) !== false) {
+                        $required_plugins = array_merge($required_plugins, $plugins);
+                        error_log('TCWP: Applied term-specific pattern: ' . $pattern);
+                    }
                 }
             }
         }
