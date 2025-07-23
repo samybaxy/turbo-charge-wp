@@ -2291,9 +2291,12 @@ class TCWP_Manual_Config {
         
         // CRITICAL FIX: Special handling for shortcode-dependent plugins
         // If we find shortcodes in content but don't have the required plugins, add them
-        if (function_exists('get_post') && !empty(get_queried_object_id())) {
-            $post = get_post(get_queried_object_id());
-            if ($post && !empty($post->post_content)) {
+        // Only check if WordPress query is ready and wp_query exists
+        if (function_exists('get_post') && did_action('wp') && !empty($GLOBALS['wp_query'])) {
+            $queried_id = get_queried_object_id();
+            if (!empty($queried_id)) {
+                $post = get_post($queried_id);
+                if ($post && !empty($post->post_content)) {
                 $content = $post->post_content;
                 
                 // Check for shortcodes that require specific plugins
@@ -2329,6 +2332,7 @@ class TCWP_Manual_Config {
                             error_log('TCWP: Added shortcode-dependent plugin: ' . $plugin_path . ' for shortcode: [' . $shortcode . ']');
                         }
                     }
+                }
                 }
             }
         }
@@ -2470,13 +2474,14 @@ class TCWP_Manual_Config {
         $current_term = null;
         
         // Try to get from global query if available (works on actual pages)
-        if (is_tax()) {
+        // Only use conditional query tags if WordPress query is ready
+        if (did_action('wp') && is_tax()) {
             $current_taxonomy = get_query_var('taxonomy');
             $current_term = get_query_var('term');
-        } elseif (is_category()) {
+        } elseif (did_action('wp') && is_category()) {
             $current_taxonomy = 'category';
             $current_term = get_query_var('category_name');
-        } elseif (is_tag()) {
+        } elseif (did_action('wp') && is_tag()) {
             $current_taxonomy = 'post_tag';
             $current_term = get_query_var('tag');
         }
@@ -2579,13 +2584,15 @@ class TCWP_Manual_Config {
         $post_id = null;
         
         // Method 1: Try using WordPress's url_to_postid function
-        if (function_exists('url_to_postid')) {
+        // Only use url_to_postid if WordPress is fully loaded and rewrite rules are available
+        if (function_exists('url_to_postid') && did_action('wp_loaded') && !empty($GLOBALS['wp_rewrite'])) {
             $post_id = url_to_postid($url);
             error_log('TCWP: url_to_postid returned: ' . $post_id);
         }
         
         // Method 2: If that fails, try to get the queried object (works on actual page requests)
-        if (!$post_id && function_exists('get_queried_object_id')) {
+        // Only use get_queried_object_id if WordPress query is ready and wp_query exists
+        if (!$post_id && function_exists('get_queried_object_id') && did_action('wp') && !empty($GLOBALS['wp_query'])) {
             $queried_id = get_queried_object_id();
             if ($queried_id && get_post($queried_id)) {
                 $post_id = $queried_id;
