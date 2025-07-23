@@ -232,6 +232,12 @@ class TCWP_Manual_Config {
      * Enhanced admin page with comprehensive site coverage
      */
     public static function admin_page() {
+        // Handle export request FIRST before any output
+        if (isset($_GET['action']) && $_GET['action'] === 'export_config') {
+            self::export_configuration_xml();
+            exit;
+        }
+        
         // Handle form submissions
         if (isset($_POST['submit_manual_config'])) {
             self::save_manual_config();
@@ -239,12 +245,6 @@ class TCWP_Manual_Config {
         
         if (isset($_POST['import_from_patterns'])) {
             self::import_from_url_patterns();
-        }
-        
-        // Handle export request
-        if (isset($_GET['action']) && $_GET['action'] === 'export_config') {
-            self::export_configuration_xml();
-            exit;
         }
         
         // Handle import request
@@ -2553,7 +2553,7 @@ class TCWP_Manual_Config {
                 $item_element->setAttribute('pattern', $config['pattern']);
                 
                 if (!empty($config['title'])) {
-                    $item_element->appendChild($xml->createElement('title', htmlspecialchars($config['title'])));
+                    $item_element->appendChild($xml->createElement('title', htmlspecialchars($config['title'], ENT_XML1)));
                 }
                 
                 if (!empty($config['post_type'])) {
@@ -2566,7 +2566,7 @@ class TCWP_Manual_Config {
                 
                 $plugins_element = $xml->createElement('plugins');
                 foreach ($config['plugins'] as $plugin) {
-                    $plugin_element = $xml->createElement('plugin', htmlspecialchars($plugin));
+                    $plugin_element = $xml->createElement('plugin', htmlspecialchars($plugin, ENT_XML1));
                     $plugins_element->appendChild($plugin_element);
                 }
                 $item_element->appendChild($plugins_element);
