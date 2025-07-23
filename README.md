@@ -218,6 +218,64 @@ turbo-charge-wp/
 
 ## Changelog
 
+### 2.3.2 (2025-07-23)
+**New Feature: XML Configuration Import/Export**
+
+#### 🎯 Major New Features
+- **XML Export Functionality**: Export complete manual configuration to structured XML files with site metadata and timestamps
+- **XML Import System**: Import configurations from XML files with merge or replace modes for seamless environment transfers
+- **Categorized Data Structure**: Organized export/import by content types (pages, posts, archives, WooCommerce, custom posts, taxonomies, menu items)
+- **Sandbox-to-Production Workflow**: Perfect for transferring tested configurations from development to live environments
+
+#### 🚀 Enhanced User Experience
+- **Integrated UI**: Added import/export controls to the bulk actions tab with intuitive interface
+- **Safety Features**: Built-in warnings, confirmation dialogs, and backup recommendations
+- **Import Statistics**: Detailed feedback showing exactly what was imported and from which categories
+- **Merge vs Replace**: Choose to merge new settings with existing ones or completely replace current configuration
+
+#### 🔐 Security & Validation
+- **Secure XML Parsing**: Implements proper XML security practices with entity loading disabled
+- **Data Validation**: Comprehensive validation of imported data with sanitization
+- **Permission Checks**: Proper WordPress capability checks for administrative access
+- **Error Handling**: Graceful error handling with user-friendly error messages
+
+#### 📋 Technical Implementation
+- **Structured XML Format**: Clean, readable XML structure with proper encoding and formatting
+- **Site Compatibility**: Includes site metadata to track configuration origins
+- **Plugin Compatibility**: Validates plugin names against installed plugins
+- **Performance Optimized**: Efficient processing for large configuration sets
+
+**This update enables seamless configuration management across multiple environments, making it easy to deploy tested plugin configurations from staging to production.**
+
+### 2.3.1 (2025-07-22)
+**Critical Bug Fix: Taxonomy Filtering & Frontend Plugin Loading**
+
+#### 🔧 Major Fixes
+- **Fixed critical filtering bypass**: Resolved issue where `DOING_CRON` and `REST_REQUEST` were preventing all frontend plugin filtering
+- **Enhanced taxonomy URL matching**: Improved pattern matching for JetEngine and custom taxonomy structures
+- **Fixed shortcode plugin loading**: Added automatic detection for `[pdf_view]` and other shortcodes requiring specific plugins
+- **Improved manual configuration**: Better URL segment matching for complex taxonomy hierarchies
+
+#### 🚀 Enhancements  
+- **Enhanced debug logging**: Added comprehensive logging for taxonomy detection and pattern matching
+- **Taxonomy inheritance**: Parent taxonomy settings now properly apply to child terms
+- **Segment-based matching**: Improved URL pattern matching for hierarchical content structures
+- **Aggressive fallback matching**: Better handling of complex JetEngine-generated URLs
+
+#### 📋 Technical Changes
+- **WordPress compatibility**: Updated minimum requirement to WordPress 6.4+
+- **Critical operation detection**: Refined to only block truly critical operations (WP installation, WP-CLI)
+- **Pattern matching algorithm**: Enhanced with order-independent segment comparison
+- **Manual override mode**: Better integration with taxonomy and shortcode detection
+
+#### 🐛 Bug Fixes
+- Fixed taxonomy settings not applying on frontend due to overly aggressive critical operation detection
+- Resolved manual configuration patterns not matching JetEngine taxonomy URLs  
+- Fixed shortcode-dependent plugins not loading when content contains required shortcodes
+- Improved URL path normalization for consistent pattern matching
+
+**This update resolves the primary issue where taxonomy filtering configurations weren't being applied on the frontend, ensuring proper plugin loading for custom post types and taxonomies.**
+
 ### 1.0.0
 - Initial release
 - Core plugin filtering functionality
