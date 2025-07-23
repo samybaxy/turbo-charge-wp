@@ -65,20 +65,25 @@ function tcwp_mu_filter_plugins($value) {
         $manual_config = get_option('tcwp_manual_config', array());
         $current_url = $_SERVER['REQUEST_URI'] ?? '/';
         
-        // Find matching configuration
+        // Find matching configuration using enhanced logic
         $required_plugins = array();
         
-        // Try exact URL match first
-        $parsed_url = parse_url($current_url);
-        $path = $parsed_url['path'] ?? '/';
-        
-        if (isset($manual_config[$path])) {
-            $required_plugins = $manual_config[$path];
+        // Check if the manual config class is available for advanced URL matching
+        if (class_exists('TCWP_Manual_Config')) {
+            $required_plugins = TCWP_Manual_Config::get_manual_plugins_for_url($current_url);
         } else {
-            // Try pattern matching
-            foreach ($manual_config as $pattern => $plugins) {
-                if (strpos($current_url, $pattern) !== false) {
-                    $required_plugins = array_merge($required_plugins, $plugins);
+            // Fallback to simple pattern matching
+            $parsed_url = parse_url($current_url);
+            $path = $parsed_url['path'] ?? '/';
+            
+            if (isset($manual_config[$path])) {
+                $required_plugins = $manual_config[$path];
+            } else {
+                // Try pattern matching
+                foreach ($manual_config as $pattern => $plugins) {
+                    if (strpos($current_url, $pattern) !== false) {
+                        $required_plugins = array_merge($required_plugins, $plugins);
+                    }
                 }
             }
         }
