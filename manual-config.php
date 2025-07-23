@@ -229,15 +229,20 @@ class TCWP_Manual_Config {
     }
     
     /**
-     * Enhanced admin page with comprehensive site coverage
+     * Handle export request early in admin_init to avoid headers already sent
      */
-    public static function admin_page() {
-        // Handle export request FIRST before any output
-        if (isset($_GET['action']) && $_GET['action'] === 'export_config') {
+    public static function handle_export_request() {
+        if (isset($_GET['page']) && $_GET['page'] === 'tcwp-manual-config' && 
+            isset($_GET['action']) && $_GET['action'] === 'export_config') {
             self::export_configuration_xml();
             exit;
         }
-        
+    }
+
+    /**
+     * Enhanced admin page with comprehensive site coverage
+     */
+    public static function admin_page() {
         // Handle form submissions
         if (isset($_POST['submit_manual_config'])) {
             self::save_manual_config();
@@ -2710,3 +2715,4 @@ class TCWP_Manual_Config {
 
 // Initialize manual configuration
 add_action('admin_menu', array('TCWP_Manual_Config', 'add_admin_menu'));
+add_action('admin_init', array('TCWP_Manual_Config', 'handle_export_request'));
