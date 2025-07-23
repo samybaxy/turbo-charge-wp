@@ -30,9 +30,117 @@ class TCWP_Manual_Config {
     }
     
     /**
-     * Get all available pages, posts, and menu items
+     * Clear site items cache when needed
+     */
+    public static function clear_site_items_cache() {
+        delete_transient('tcwp_site_items_v2');
+    }
+    
+    /**
+     * Initialize AJAX handlers
+     */
+    public static function init_ajax_handlers() {
+        add_action('wp_ajax_tcwp_autosave_config', array(__CLASS__, 'ajax_autosave_config'));
+        add_action('wp_ajax_tcwp_refresh_cache', array(__CLASS__, 'ajax_refresh_cache'));
+    }
+    
+    /**
+     * AJAX handler for auto-saving configuration
+     */
+    public static function ajax_autosave_config() {
+        // Verify nonce
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tcwp_autosave_nonce')) {
+            wp_send_json_error('Invalid nonce');
+            return;
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+            return;
+        }
+        
+        try {
+            $patterns = $_POST['manual_config_patterns'] ?? array();
+            $plugins = $_POST['manual_config_plugins'] ?? array();
+            
+            // Get existing configuration
+            $manual_config = get_option('tcwp_manual_config', array());
+            
+            // Process configurations
+            $configured_patterns = array();
+            $plugin_counts = array();
+            $total_plugins = 0;
+            
+            foreach ($patterns as $pattern) {
+                if (!empty($pattern)) {
+                    $pattern = sanitize_text_field($pattern);
+                    $pattern_plugins = isset($plugins[$pattern]) ? array_map('sanitize_text_field', $plugins[$pattern]) : array();
+                    
+                    if (!empty($pattern_plugins)) {
+                        $manual_config[$pattern] = $pattern_plugins;
+                        $configured_patterns[] = $pattern;
+                        $plugin_counts[$pattern] = count($pattern_plugins);
+                        $total_plugins += count($pattern_plugins);
+                    } else {
+                        // Remove empty configurations
+                        unset($manual_config[$pattern]);
+                    }
+                }
+            }
+            
+            // Save to database
+            $success = update_option('tcwp_manual_config', $manual_config);
+            
+            if ($success) {
+                // Clear cache after successful save
+                self::clear_site_items_cache();
+                
+                wp_send_json_success(array(
+                    'patterns_saved' => count($configured_patterns),
+                    'total_plugins' => $total_plugins,
+                    'configured_patterns' => $configured_patterns,
+                    'plugin_counts' => $plugin_counts,
+                    'message' => 'Configuration saved successfully'
+                ));
+            } else {
+                wp_send_json_error('Failed to save configuration to database');
+            }
+            
+        } catch (Exception $e) {
+            error_log('TCWP AJAX Error: ' . $e->getMessage());
+            wp_send_json_error('Server error: ' . $e->getMessage());
+        }
+    }
+    
+    /**
+     * AJAX handler for refreshing cache
+     */
+    public static function ajax_refresh_cache() {
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'tcwp_refresh_nonce')) {
+            wp_send_json_error('Invalid nonce');
+            return;
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions');
+            return;
+        }
+        
+        self::clear_site_items_cache();
+        wp_send_json_success('Cache cleared successfully');
+    }
+    
+    /**
+     * Get all available pages, posts, and menu items (optimized for performance)
      */
     public static function get_all_site_items() {
+        // Check cache first
+        $cache_key = 'tcwp_site_items_v2';
+        $cached_items = get_transient($cache_key);
+        if ($cached_items !== false) {
+            return $cached_items;
+        }
+        
         $items = array();
         
         // Homepage
@@ -56,45 +164,49 @@ class TCWP_Manual_Config {
             );
         }
         
-        // All published pages
+        // Optimize pages query - reduce number and remove expensive operations
         $pages = get_pages(array(
             'post_status' => 'publish',
-            'number' => 500,
-            'sort_column' => 'menu_order'
+            'number' => 100, // Reduced from 500
+            'sort_column' => 'menu_order',
+            'hierarchical' => false // Disable hierarchy to improve performance
         ));
         
         foreach ($pages as $page) {
+            $permalink = get_permalink($page->ID);
             $items['page_' . $page->ID] = array(
                 'type' => 'page',
                 'title' => '📄 ' . $page->post_title,
-                'url' => get_permalink($page->ID),
-                'pattern' => parse_url(get_permalink($page->ID), PHP_URL_PATH),
+                'url' => $permalink,
+                'pattern' => parse_url($permalink, PHP_URL_PATH),
                 'id' => $page->ID,
                 'priority' => 3
             );
         }
         
-        // Recent posts (limit to 50 for performance)
+        // Optimize posts query - reduce number and use better parameters
         $posts = get_posts(array(
             'post_status' => 'publish',
-            'numberposts' => 50,
+            'numberposts' => 25, // Reduced from 50
             'post_type' => 'post',
             'orderby' => 'date',
-            'order' => 'DESC'
+            'order' => 'DESC',
+            'suppress_filters' => true // Improve performance
         ));
         
         foreach ($posts as $post) {
+            $permalink = get_permalink($post->ID);
             $items['post_' . $post->ID] = array(
                 'type' => 'post',
                 'title' => '📝 ' . $post->post_title,
-                'url' => get_permalink($post->ID),
-                'pattern' => parse_url(get_permalink($post->ID), PHP_URL_PATH),
+                'url' => $permalink,
+                'pattern' => parse_url($permalink, PHP_URL_PATH),
                 'id' => $post->ID,
                 'priority' => 4
             );
         }
         
-        // WooCommerce pages
+        // WooCommerce pages (optimized)
         if (class_exists('WooCommerce')) {
             $woo_pages = array(
                 'shop' => get_option('woocommerce_shop_page_id'),
@@ -105,10 +217,12 @@ class TCWP_Manual_Config {
             
             foreach ($woo_pages as $key => $page_id) {
                 if ($page_id) {
+                    $title = get_the_title($page_id);
+                    $permalink = get_permalink($page_id);
                     $items['woo_' . $key] = array(
                         'type' => 'woocommerce',
-                        'title' => '🛍️ ' . get_the_title($page_id),
-                        'url' => get_permalink($page_id),
+                        'title' => '🛍️ ' . $title,
+                        'url' => $permalink,
                         'pattern' => $key,
                         'id' => $page_id,
                         'priority' => 2
@@ -117,7 +231,7 @@ class TCWP_Manual_Config {
             }
         }
         
-        // Custom post types and their archives
+        // Custom post types and their archives (optimized)
         $post_types = get_post_types(array(
             'public' => true,
             'show_ui' => true,
@@ -140,19 +254,21 @@ class TCWP_Manual_Config {
                 }
             }
             
-            // Add individual posts (limit for performance)
-            $posts = get_posts(array(
+            // Add individual posts (reduced limit)
+            $custom_posts = get_posts(array(
                 'post_type' => $post_type->name,
                 'post_status' => 'publish',
-                'numberposts' => 20
+                'numberposts' => 10, // Reduced from 20
+                'suppress_filters' => true
             ));
             
-            foreach ($posts as $post) {
+            foreach ($custom_posts as $post) {
+                $permalink = get_permalink($post->ID);
                 $items[$post_type->name . '_' . $post->ID] = array(
                     'type' => 'custom_post',
                     'title' => '📋 ' . $post->post_title . ' (' . $post_type->label . ')',
-                    'url' => get_permalink($post->ID),
-                    'pattern' => parse_url(get_permalink($post->ID), PHP_URL_PATH),
+                    'url' => $permalink,
+                    'pattern' => parse_url($permalink, PHP_URL_PATH),
                     'id' => $post->ID,
                     'post_type' => $post_type->name,
                     'priority' => 5
@@ -160,7 +276,7 @@ class TCWP_Manual_Config {
             }
         }
         
-        // Custom taxonomies
+        // Custom taxonomies (optimized)
         $taxonomies = get_taxonomies(array(
             'public' => true,
             '_builtin' => false
@@ -170,7 +286,8 @@ class TCWP_Manual_Config {
             $terms = get_terms(array(
                 'taxonomy' => $taxonomy->name,
                 'hide_empty' => false,
-                'number' => 20
+                'number' => 15, // Reduced from 20
+                'fields' => 'all' // Explicit field selection
             ));
             
             if (!is_wp_error($terms) && !empty($terms)) {
@@ -191,15 +308,22 @@ class TCWP_Manual_Config {
             }
         }
         
-        // Menu items from all menus
+        // Menu items from all menus (optimized)
         $menus = wp_get_nav_menus();
+        $menu_count = 0;
         foreach ($menus as $menu) {
-            $menu_items = wp_get_nav_menu_items($menu->term_id);
+            // Limit menu processing to prevent timeouts
+            if ($menu_count >= 5) break; // Limit to 5 menus max
+            
+            $menu_items = wp_get_nav_menu_items($menu->term_id, array('update_post_term_cache' => false));
             if ($menu_items) {
+                $item_count = 0;
                 foreach ($menu_items as $menu_item) {
+                    // Limit menu items per menu
+                    if ($item_count >= 20) break;
+                    
                     if ($menu_item->url && !isset($items['menu_' . $menu_item->ID])) {
                         $url_path = parse_url($menu_item->url, PHP_URL_PATH);
-                        // Create unique pattern using URL path and menu item ID to avoid conflicts
                         $unique_pattern = $url_path . '::menu_' . $menu_item->ID;
                         
                         $items['menu_' . $menu_item->ID] = array(
@@ -212,9 +336,11 @@ class TCWP_Manual_Config {
                             'menu_name' => $menu->name,
                             'priority' => 7
                         );
+                        $item_count++;
                     }
                 }
             }
+            $menu_count++;
         }
         
         // Sort by priority and title
@@ -224,6 +350,9 @@ class TCWP_Manual_Config {
             }
             return $a['priority'] - $b['priority'];
         });
+        
+        // Cache the results for better performance (cache for 15 minutes)
+        set_transient($cache_key, $items, 15 * MINUTE_IN_SECONDS);
         
         return $items;
     }
@@ -304,9 +433,12 @@ class TCWP_Manual_Config {
                 </a>
             </h2>
             
-            <div id="tcwp-loading" style="display: none; text-align: center; padding: 40px; color: #666;">
+            <div id="tcwp-loading" style="display: block; text-align: center; padding: 40px; color: #666;">
             <div style="font-size: 18px; margin-bottom: 10px;">⏳ Loading configuration...</div>
             <div style="font-size: 14px;">Please wait while we prepare your plugin settings.</div>
+            <div style="margin-top: 20px;">
+                <div class="tcwp-loading-spinner"></div>
+            </div>
         </div>
         
         <div id="tcwp-content" style="display: none;">
@@ -322,6 +454,22 @@ class TCWP_Manual_Config {
         </div>
         
         <style>
+        /* Loading spinner */
+        .tcwp-loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0073aa;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: tcwp-spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes tcwp-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
         /* Prevent FOUC (Flash of Unstyled Content) */
         .tcwp-config-grid {
             display: grid;
@@ -336,6 +484,49 @@ class TCWP_Manual_Config {
         .tcwp-config-grid.loaded {
             visibility: visible;
             opacity: 1;
+        }
+        
+        /* Pagination styles */
+        .tcwp-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+        
+        .tcwp-pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .tcwp-pagination button:hover:not(:disabled) {
+            background: #0073aa;
+            color: white;
+            border-color: #0073aa;
+        }
+        
+        .tcwp-pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .tcwp-pagination .current {
+            background: #0073aa;
+            color: white;
+            border-color: #0073aa;
+        }
+        
+        .tcwp-pagination span {
+            padding: 8px 4px;
+            color: #666;
         }
         
         @media (max-width: 1200px) {
@@ -644,6 +835,7 @@ class TCWP_Manual_Config {
         var tcwp_ajax = {
             ajaxurl: '<?php echo admin_url('admin-ajax.php'); ?>',
             nonce: '<?php echo wp_create_nonce('tcwp_autosave_nonce'); ?>',
+            refresh_nonce: '<?php echo wp_create_nonce('tcwp_refresh_nonce'); ?>',
             debug: true
         };
         
@@ -652,12 +844,84 @@ class TCWP_Manual_Config {
             var $saveStatus = $('#tcwp-save-status');
             var isCurrentlySaving = false;
             
+            // Initialize pagination
+            var currentPage = 1;
+            var itemsPerPage = 50;
+            var totalItems = $('.tcwp-config-item').length;
+            var filteredItems = $('.tcwp-config-item');
+            
+            function updatePagination() {
+                var totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+                
+                // Hide all items first
+                $('.tcwp-config-item').hide();
+                
+                if (itemsPerPage === 'all') {
+                    filteredItems.show();
+                    $('#tcwp-pagination').hide();
+                    $('#tcwp-pagination-info').text(filteredItems.length + ' items');
+                } else {
+                    var start = (currentPage - 1) * itemsPerPage;
+                    var end = start + itemsPerPage;
+                    
+                    filteredItems.slice(start, end).show();
+                    
+                    // Update pagination controls
+                    var paginationHtml = '';
+                    if (totalPages > 1) {
+                        paginationHtml += '<button ' + (currentPage === 1 ? 'disabled' : '') + ' onclick="goToPage(' + (currentPage - 1) + ')">← Previous</button>';
+                        
+                        var startPage = Math.max(1, currentPage - 2);
+                        var endPage = Math.min(totalPages, currentPage + 2);
+                        
+                        if (startPage > 1) {
+                            paginationHtml += '<button onclick="goToPage(1)">1</button>';
+                            if (startPage > 2) paginationHtml += '<span>...</span>';
+                        }
+                        
+                        for (var i = startPage; i <= endPage; i++) {
+                            paginationHtml += '<button ' + (i === currentPage ? 'class="current"' : '') + ' onclick="goToPage(' + i + ')">' + i + '</button>';
+                        }
+                        
+                        if (endPage < totalPages) {
+                            if (endPage < totalPages - 1) paginationHtml += '<span>...</span>';
+                            paginationHtml += '<button onclick="goToPage(' + totalPages + ')">' + totalPages + '</button>';
+                        }
+                        
+                        paginationHtml += '<button ' + (currentPage === totalPages ? 'disabled' : '') + ' onclick="goToPage(' + (currentPage + 1) + ')">Next →</button>';
+                    }
+                    
+                    $('#tcwp-pagination').html(paginationHtml).toggle(totalPages > 1);
+                    $('#tcwp-pagination-info').text('Page ' + currentPage + ' of ' + totalPages + ' (' + filteredItems.length + ' total items)');
+                }
+            }
+            
+            window.goToPage = function(page) {
+                currentPage = page;
+                updatePagination();
+                // Scroll to top of grid
+                $('html, body').animate({
+                    scrollTop: $('.tcwp-config-grid').offset().top - 100
+                }, 300);
+            };
+            
+            // Items per page change handler
+            $('#tcwp-items-per-page').on('change', function() {
+                var newValue = $(this).val();
+                itemsPerPage = newValue === 'all' ? 'all' : parseInt(newValue);
+                currentPage = 1;
+                updatePagination();
+            });
+            
             // Initialize grid visibility after DOM is ready - smooth transition
             setTimeout(function() {
-                $('#tcwp-loading').hide();
-                $('#tcwp-content').show();
-                $('.tcwp-config-grid').addClass('loaded');
-            }, 100); // Small delay to prevent flash
+                $('#tcwp-loading').fadeOut(300, function() {
+                    $('#tcwp-content').fadeIn(300, function() {
+                        $('.tcwp-config-grid').addClass('loaded');
+                        updatePagination();
+                    });
+                });
+            }, 500); // Increased delay for better UX
             
             // Tab persistence functionality
             var urlParams = new URLSearchParams(window.location.search);
@@ -688,22 +952,25 @@ class TCWP_Manual_Config {
                 window.history.replaceState({}, '', url);
             }
             
-            // Search functionality
+            // Enhanced search functionality with pagination
             $('#tcwp-search').on('input', function() {
                 var searchTerm = $(this).val().toLowerCase();
-                $('.tcwp-config-item').each(function() {
-                    var title = $(this).find('h4').text().toLowerCase();
-                    var url = $(this).find('.url-info').text().toLowerCase();
-                    
-                    if (title.includes(searchTerm) || url.includes(searchTerm)) {
-                        $(this).show();
-                    } else {
-                        $(this).hide();
-                    }
-                });
+                
+                if (searchTerm === '') {
+                    filteredItems = $('.tcwp-config-item');
+                } else {
+                    filteredItems = $('.tcwp-config-item').filter(function() {
+                        var title = $(this).find('h4').text().toLowerCase();
+                        var url = $(this).find('.url-info').text().toLowerCase();
+                        return title.includes(searchTerm) || url.includes(searchTerm);
+                    });
+                }
+                
+                currentPage = 1;
+                updatePagination();
             });
             
-            // Filter by type
+            // Enhanced filter by type with pagination
             $('.tcwp-filter-tabs button').click(function() {
                 var filterType = $(this).data('filter');
                 
@@ -711,11 +978,15 @@ class TCWP_Manual_Config {
                 $(this).addClass('active');
                 
                 if (filterType === 'all') {
-                    $('.tcwp-config-item').show();
+                    filteredItems = $('.tcwp-config-item');
                 } else {
-                    $('.tcwp-config-item').hide();
-                    $('.tcwp-config-item[data-type="' + filterType + '"]').show();
+                    filteredItems = $('.tcwp-config-item[data-type="' + filterType + '"]');
                 }
+                
+                // Reset search when filter changes
+                $('#tcwp-search').val('');
+                currentPage = 1;
+                updatePagination();
             });
             
             // Quick actions
@@ -997,7 +1268,18 @@ class TCWP_Manual_Config {
                     },
                     error: function(xhr, status, error) {
                         console.error('TCWP Error: AJAX failed:', xhr.responseText, status, error);
-                        $saveStatus.text('❌ Connection error during save').css('color', '#d63638');
+                        var errorMsg = 'Connection error during save';
+                        if (xhr.responseText) {
+                            try {
+                                var errorData = JSON.parse(xhr.responseText);
+                                if (errorData.data) {
+                                    errorMsg = errorData.data;
+                                }
+                            } catch (e) {
+                                // Use default error message
+                            }
+                        }
+                        $saveStatus.text('❌ ' + errorMsg).css('color', '#d63638');
                         console.error('AJAX Error:', error);
                     },
                     complete: function() {
@@ -1145,12 +1427,46 @@ class TCWP_Manual_Config {
             $('#tcwp-manual-save').click(function() {
                 // Clear autosave timer
                 clearTimeout(saveTimeout);
+                clearInterval(countdownInterval);
                 
                 // Perform immediate save
                 performAutosave();
                 
                 // Prevent form submission
                 return false;
+            });
+            
+            // Handle cache refresh button
+            $('#tcwp-refresh-cache').click(function() {
+                var $button = $(this);
+                var originalText = $button.text();
+                
+                $button.prop('disabled', true).text('🔄 Refreshing...');
+                
+                $.ajax({
+                    url: tcwp_ajax.ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'tcwp_refresh_cache',
+                        nonce: tcwp_ajax.refresh_nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $saveStatus.text('✅ Cache refreshed! Reloading page...').css('color', '#00a32a');
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 1000);
+                        } else {
+                            $saveStatus.text('❌ Cache refresh failed: ' + response.data).css('color', '#d63638');
+                        }
+                    },
+                    error: function() {
+                        $saveStatus.text('❌ Cache refresh failed').css('color', '#d63638');
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false).text(originalText);
+                    }
+                });
             });
             
             // Prevent form submission
@@ -1230,7 +1546,19 @@ class TCWP_Manual_Config {
     private static function render_site_pages_tab($all_site_items, $manual_config, $all_plugins) {
         ?>
         <div class="tcwp-search-box">
-            <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." />
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." style="flex: 1; min-width: 200px;" />
+                <div class="tcwp-pagination-controls" style="display: flex; gap: 10px; align-items: center;">
+                    <label for="tcwp-items-per-page">Items per page:</label>
+                    <select id="tcwp-items-per-page" style="padding: 5px;">
+                        <option value="20">20</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                    <div id="tcwp-pagination-info" style="font-size: 14px; color: #666;"></div>
+                </div>
+            </div>
         </div>
         
         <div class="tcwp-filter-tabs">
@@ -1246,6 +1574,11 @@ class TCWP_Manual_Config {
         </div>
         
         <?php
+        // Clear cache to ensure fresh data on page load if requested
+        if (isset($_GET['refresh_cache'])) {
+            self::clear_site_items_cache();
+        }
+        
         // Force reload the manual_config from database to ensure fresh data
         $fresh_manual_config = get_option('tcwp_manual_config', array());
         
@@ -1350,9 +1683,12 @@ class TCWP_Manual_Config {
                 <?php endforeach; ?>
             </div>
             
+            <div id="tcwp-pagination" class="tcwp-pagination"></div>
+            
             <p>
                 <button type="button" id="tcwp-manual-save" class="button button-primary">💾 Save All Configurations</button>
                 <button type="button" id="tcwp-bulk-essential" class="button button-secondary">⚡ Set Essential Plugins for All</button>
+                <button type="button" id="tcwp-refresh-cache" class="button button-secondary">🔄 Refresh Cache</button>
             </p>
         </form>
         <?php
@@ -1702,6 +2038,9 @@ class TCWP_Manual_Config {
         
         update_option('tcwp_manual_config', $manual_config);
         
+        // Clear cache after saving
+        self::clear_site_items_cache();
+        
         echo '<div class="notice notice-success"><p>✅ Manual configuration saved successfully! ' . count($manual_config) . ' patterns configured.</p></div>';
     }
     
@@ -1751,6 +2090,7 @@ class TCWP_Manual_Config {
                 }
                 
                 update_option('tcwp_manual_config', $manual_config);
+                self::clear_site_items_cache();
                 echo '<div class="notice notice-success"><p>✅ Essential plugins configuration applied to all pages!</p></div>';
                 break;
                 
@@ -1795,11 +2135,13 @@ class TCWP_Manual_Config {
                 }
                 
                 update_option('tcwp_manual_config', $manual_config);
+                self::clear_site_items_cache();
                 echo '<div class="notice notice-success"><p>✅ WooCommerce pages configured with ' . count($woo_plugins) . ' plugins!</p></div>';
                 break;
                 
             case 'clear_all':
                 delete_option('tcwp_manual_config');
+                self::clear_site_items_cache();
                 echo '<div class="notice notice-success"><p>✅ All manual configurations cleared! Automatic detection will now be used.</p></div>';
                 break;
         }
@@ -2751,3 +3093,4 @@ class TCWP_Manual_Config {
 // Initialize manual configuration
 add_action('admin_menu', array('TCWP_Manual_Config', 'add_admin_menu'));
 add_action('admin_init', array('TCWP_Manual_Config', 'handle_export_request'));
+add_action('wp_loaded', array('TCWP_Manual_Config', 'init_ajax_handlers'));
