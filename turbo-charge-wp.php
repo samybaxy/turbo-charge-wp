@@ -1482,16 +1482,25 @@ class TurboChargeWP {
                 }
             }
             
-            // Build final configuration
-            $config = array();
+            // Get existing configuration to merge with new data
+            $existing_config = get_option('tcwp_manual_config', array());
+            
+            // Build final configuration by merging with existing
+            $config = $existing_config;
             foreach ($patterns as $pattern) {
-                if (isset($sanitized_plugins[$pattern]) && !empty($sanitized_plugins[$pattern])) {
-                    $config[$pattern] = $sanitized_plugins[$pattern];
+                if (isset($sanitized_plugins[$pattern])) {
+                    if (!empty($sanitized_plugins[$pattern])) {
+                        $config[$pattern] = $sanitized_plugins[$pattern];
+                    } else {
+                        // Remove empty configurations
+                        unset($config[$pattern]);
+                    }
                 }
             }
             
             // Debug: Log final config
             error_log('TCWP AJAX: Final config: ' . print_r($config, true));
+            error_log('TCWP AJAX: Existing config had ' . count($existing_config) . ' items, new config has ' . count($config) . ' items');
             
             // Update option
             $update_result = update_option('tcwp_manual_config', $config);
