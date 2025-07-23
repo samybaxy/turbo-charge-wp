@@ -2466,6 +2466,13 @@ class TCWP_Manual_Config {
         $manual_config = get_option('tcwp_manual_config', array());
         $site_items = self::get_all_site_items();
         
+        // Debug: Log the manual config data
+        if (WP_DEBUG) {
+            error_log('TCWP Export Debug: Manual config count: ' . count($manual_config));
+            error_log('TCWP Export Debug: Manual config keys: ' . implode(', ', array_keys($manual_config)));
+            error_log('TCWP Export Debug: Site items count: ' . count($site_items));
+        }
+        
         // Create XML document
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
@@ -2496,6 +2503,22 @@ class TCWP_Manual_Config {
         );
         
         foreach ($manual_config as $pattern => $plugins) {
+            // Ensure plugins is an array and deduplicate
+            if (!is_array($plugins)) {
+                $plugins = array();
+            }
+            
+            // Flatten and deduplicate plugins (in case of nested arrays)
+            $flat_plugins = array();
+            foreach ($plugins as $plugin) {
+                if (is_array($plugin)) {
+                    $flat_plugins = array_merge($flat_plugins, $plugin);
+                } else {
+                    $flat_plugins[] = $plugin;
+                }
+            }
+            $plugins = array_unique(array_filter($flat_plugins));
+            
             $config_item = array(
                 'pattern' => $pattern,
                 'plugins' => $plugins,
@@ -2512,6 +2535,11 @@ class TCWP_Manual_Config {
                     if (isset($item['taxonomy'])) $config_item['taxonomy'] = $item['taxonomy'];
                     break;
                 }
+            }
+            
+            // Debug: Log each config item being processed
+            if (WP_DEBUG) {
+                error_log("TCWP Export Debug: Processing pattern '$pattern' with " . count($plugins) . " plugins, type: " . $config_item['type']);
             }
             
             // Categorize by type
@@ -2543,6 +2571,13 @@ class TCWP_Manual_Config {
                         $config_by_type['other'][] = $config_item;
                     }
                     break;
+            }
+        }
+        
+        // Debug: Log the categorized config counts
+        if (WP_DEBUG) {
+            foreach ($config_by_type as $type => $configs) {
+                error_log("TCWP Export Debug: $type has " . count($configs) . " items");
             }
         }
         
