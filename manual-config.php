@@ -241,6 +241,27 @@ class TCWP_Manual_Config {
             self::import_from_url_patterns();
         }
         
+        // Handle export request
+        if (isset($_GET['action']) && $_GET['action'] === 'export_config') {
+            self::export_configuration_xml();
+            exit;
+        }
+        
+        // Handle import request
+        if (isset($_POST['import_config_xml'])) {
+            $import_result = self::import_configuration_xml();
+            if ($import_result['success']) {
+                echo '<div class="notice notice-success"><p>' . esc_html($import_result['message']) . '</p></div>';
+            } else {
+                echo '<div class="notice notice-error"><p>' . esc_html($import_result['message']) . '</p></div>';
+            }
+        }
+        
+        // Handle bulk actions
+        if (isset($_POST['bulk_action'])) {
+            self::handle_bulk_action($_POST['bulk_action']);
+        }
+        
         // Ensure dashicons are loaded
         wp_enqueue_style('dashicons');
         
@@ -1519,6 +1540,70 @@ class TCWP_Manual_Config {
                 </div>
             </div>
         </div>
+        
+        <!-- Import/Export Section -->
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+            <h3>📦 Configuration Import/Export</h3>
+            <p>Export your current configuration to XML for backup or transfer to another site. Import configurations from XML files.</p>
+            
+            <div style="display: flex; gap: 30px; margin-top: 20px;">
+                <div style="flex: 1;">
+                    <h4>📤 Export Configuration</h4>
+                    <p>Download your current manual configuration as an XML file. This includes all configured patterns for pages, posts, archives, WooCommerce, custom posts, taxonomies, and menu items.</p>
+                    
+                    <a href="?page=tcwp-manual-config&tab=bulk_actions&action=export_config" 
+                       class="button button-primary" 
+                       style="text-decoration: none;">
+                        <span class="dashicons dashicons-download" style="vertical-align: text-top;"></span>
+                        Export Configuration to XML
+                    </a>
+                </div>
+                
+                <div style="flex: 1;">
+                    <h4>📥 Import Configuration</h4>
+                    <p>Upload an XML configuration file to restore or merge settings. Choose whether to merge with existing settings or replace them entirely.</p>
+                    
+                    <form method="post" enctype="multipart/form-data" style="margin-top: 15px;">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row">XML File</th>
+                                <td>
+                                    <input type="file" name="import_file" accept=".xml" required />
+                                    <p class="description">Select a Turbo Charge WP configuration XML file.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Import Mode</th>
+                                <td>
+                                    <label>
+                                        <input type="radio" name="import_mode" value="merge" checked />
+                                        <strong>Merge:</strong> Add imported settings to existing configuration
+                                    </label><br>
+                                    <label style="margin-top: 8px; display: inline-block;">
+                                        <input type="radio" name="import_mode" value="replace" />
+                                        <strong>Replace:</strong> Replace entire configuration with imported settings
+                                    </label>
+                                    <p class="description">Merge will preserve existing settings and add new ones. Replace will completely overwrite your current configuration.</p>
+                                </td>
+                            </tr>
+                        </table>
+                        
+                        <input type="submit" name="import_config_xml" class="button button-secondary" value="Import Configuration" 
+                               onclick="return confirm('Are you sure you want to import this configuration? Make sure to export your current settings first as a backup.');" />
+                    </form>
+                </div>
+            </div>
+            
+            <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 4px; margin-top: 20px;">
+                <h4 style="margin-top: 0; color: #856404;">⚠️ Important Notes:</h4>
+                <ul style="margin: 10px 0; color: #856404;">
+                    <li><strong>Backup First:</strong> Always export your current configuration before importing new settings.</li>
+                    <li><strong>Plugin Compatibility:</strong> Ensure imported plugin names match the plugins installed on this site.</li>
+                    <li><strong>Site Differences:</strong> Imported configurations may reference pages/posts that don't exist on this site.</li>
+                    <li><strong>Testing:</strong> Test your site thoroughly after importing configurations to ensure everything works correctly.</li>
+                </ul>
+            </div>
+        </div>
         <?php
     }
     
@@ -1741,17 +1826,58 @@ class TCWP_Manual_Config {
         error_log('TCWP: Getting manual plugins for URL: ' . $url . ' (path: ' . $path . ')');
         error_log('TCWP: Manual config patterns: ' . print_r(array_keys($manual_config), true));
         
-        // First, try exact URL path match
+        // PRIORITY 1: Try exact URL path match first
         if (isset($manual_config[$path])) {
             $required_plugins = array_merge($required_plugins, $manual_config[$path]);
             error_log('TCWP: Found exact path match for: ' . $path);
         }
         
-        // Enhanced taxonomy support: Check if this is a taxonomy URL
+        // PRIORITY 2: Check for taxonomy archive pages (before general taxonomy matching)
+        $taxonomy_archive_plugins = self::get_taxonomy_archive_plugins_for_url($url, $manual_config);
+        if (!empty($taxonomy_archive_plugins)) {
+            $required_plugins = array_merge($required_plugins, $taxonomy_archive_plugins);
+            error_log('TCWP: Added taxonomy archive plugins: ' . print_r($taxonomy_archive_plugins, true));
+        }
+        
+        // PRIORITY 3: Enhanced taxonomy support: Check if this is a taxonomy URL
         $taxonomy_plugins = self::get_taxonomy_plugins_for_url($url, $manual_config);
         if (!empty($taxonomy_plugins)) {
             $required_plugins = array_merge($required_plugins, $taxonomy_plugins);
             error_log('TCWP: Added taxonomy plugins: ' . print_r($taxonomy_plugins, true));
+        }
+        
+        // PRIORITY 4: Taxonomy inheritance for individual posts
+        $inherited_plugins = self::get_taxonomy_inherited_plugins_for_url($url, $manual_config);
+        if (!empty($inherited_plugins)) {
+            $required_plugins = array_merge($required_plugins, $inherited_plugins);
+            error_log('TCWP: Added taxonomy inherited plugins: ' . print_r($inherited_plugins, true));
+        }
+        
+        // SIMPLIFIED APPROACH: Try partial matching for JetEngine and similar complex URLs
+        foreach ($manual_config as $pattern => $plugins) {
+            if ($pattern === $path) {
+                continue; // Already handled above
+            }
+            
+            // If pattern contains URL segments, try matching each segment
+            if (strpos($pattern, '/') !== false) {
+                $pattern_parts = explode('/', trim($pattern, '/'));
+                $url_parts = explode('/', trim($path, '/'));
+                
+                // Check if all pattern parts exist in URL parts (order independent)
+                $all_parts_match = true;
+                foreach ($pattern_parts as $pattern_part) {
+                    if (!empty($pattern_part) && !in_array($pattern_part, $url_parts)) {
+                        $all_parts_match = false;
+                        break;
+                    }
+                }
+                
+                if ($all_parts_match && !empty($pattern_parts)) {
+                    $required_plugins = array_merge($required_plugins, $plugins);
+                    error_log('TCWP: Found segment-based match: ' . $pattern . ' for URL: ' . $url);
+                }
+            }
         }
         
         // Then try pattern matching
@@ -1778,6 +1904,12 @@ class TCWP_Manual_Config {
                 // Try direct string matching first
                 if (strpos($url, $pattern) !== false || strpos($path, $pattern) !== false) {
                     $pattern_matches = true;
+                }
+                
+                // SPECIFIC FIX: Better matching for /resources/ pattern
+                if ($pattern === '/resources/' && strpos($path, '/resources/') === 0) {
+                    $pattern_matches = true;
+                    error_log('TCWP: RESOURCES PATTERN MATCHED for URL: ' . $url);
                 }
                 
                 // For taxonomy patterns, also try matching URL segments
@@ -1810,10 +1942,163 @@ class TCWP_Manual_Config {
             }
         }
         
+        // CRITICAL FIX: Special handling for shortcode-dependent plugins
+        // If we find shortcodes in content but don't have the required plugins, add them
+        if (function_exists('get_post') && !empty(get_queried_object_id())) {
+            $post = get_post(get_queried_object_id());
+            if ($post && !empty($post->post_content)) {
+                $content = $post->post_content;
+                
+                // Check for shortcodes that require specific plugins
+                $shortcode_plugins = array(
+                    'pdf_view' => 'code-snippets/code-snippets.php',
+                    'contact-form' => 'contact-form-7/wp-contact-form-7.php',
+                    'wpforms' => 'wpforms-lite/wpforms.php',
+                );
+                
+                // SPECIAL CASE: For /resources/ URLs, always include code-snippets if pdf_view shortcode found
+                if (strpos($path, '/resources/') === 0 && strpos($content, '[pdf_view') !== false) {
+                    if (!in_array('code-snippets/code-snippets.php', $required_plugins)) {
+                        $required_plugins[] = 'code-snippets/code-snippets.php';
+                        error_log('TCWP: FORCED code-snippets for /resources/ URL with pdf_view shortcode: ' . $url);
+                    }
+                }
+                
+                foreach ($shortcode_plugins as $shortcode => $plugin_path) {
+                    if (strpos($content, '[' . $shortcode) !== false) {
+                        // Check if this plugin is configured in any pattern for similar URLs
+                        $should_add_plugin = false;
+                        
+                        foreach ($manual_config as $config_pattern => $config_plugins) {
+                            if (in_array($plugin_path, $config_plugins)) {
+                                // If this plugin is configured for similar URLs, add it
+                                $should_add_plugin = true;
+                                break;
+                            }
+                        }
+                        
+                        if ($should_add_plugin && !in_array($plugin_path, $required_plugins)) {
+                            $required_plugins[] = $plugin_path;
+                            error_log('TCWP: Added shortcode-dependent plugin: ' . $plugin_path . ' for shortcode: [' . $shortcode . ']');
+                        }
+                    }
+                }
+            }
+        }
+        
+        // AGGRESSIVE FALLBACK: For JetEngine URLs, try to match any pattern that shares URL segments
+        if (empty($required_plugins) || count($required_plugins) <= 3) {
+            $url_segments = explode('/', trim($path, '/'));
+            
+            foreach ($manual_config as $pattern => $plugins) {
+                if (strpos($pattern, '/') !== false) {
+                    $pattern_segments = explode('/', trim($pattern, '/'));
+                    
+                    // If URL shares at least 2 segments with a pattern, consider it a match
+                    $shared_segments = array_intersect($url_segments, $pattern_segments);
+                    if (count($shared_segments) >= 2) {
+                        $required_plugins = array_merge($required_plugins, $plugins);
+                        error_log('TCWP: Aggressive fallback match: ' . $pattern . ' (shared segments: ' . implode(', ', $shared_segments) . ')');
+                    }
+                }
+            }
+        }
+        
         $final_plugins = array_unique($required_plugins);
         error_log('TCWP: Final plugins for URL ' . $url . ': ' . print_r($final_plugins, true));
         
         return $final_plugins;
+    }
+    
+    /**
+     * Get plugins for taxonomy archive pages (improved detection)
+     */
+    private static function get_taxonomy_archive_plugins_for_url($url, $manual_config) {
+        $required_plugins = array();
+        
+        // Parse the URL to identify if this is a taxonomy archive page
+        $parsed_url = parse_url($url);
+        $path = $parsed_url['path'] ?? '/';
+        $clean_path = trim($path, '/');
+        $path_segments = explode('/', $clean_path);
+        
+        error_log('TCWP: Checking taxonomy archive for path: ' . $path . ' (segments: ' . implode(', ', $path_segments) . ')');
+        
+        // Get all registered taxonomies to check against
+        $taxonomies = get_taxonomies(array('public' => true), 'objects');
+        
+        foreach ($taxonomies as $taxonomy_name => $taxonomy_obj) {
+            $potential_matches = array();
+            
+            // 1. Check if URL matches taxonomy name directly
+            if ($clean_path === $taxonomy_name) {
+                $potential_matches[] = $taxonomy_name;
+                error_log('TCWP: Direct taxonomy name match: ' . $taxonomy_name);
+            }
+            
+            // 2. Check if URL matches taxonomy rewrite slug
+            if ($taxonomy_obj->rewrite && isset($taxonomy_obj->rewrite['slug'])) {
+                $rewrite_slug = $taxonomy_obj->rewrite['slug'];
+                if ($clean_path === $rewrite_slug) {
+                    $potential_matches[] = $rewrite_slug;
+                    error_log('TCWP: Taxonomy rewrite slug match: ' . $rewrite_slug);
+                }
+                
+                // Also check if path ends with the rewrite slug (for nested structures)
+                if (in_array($rewrite_slug, $path_segments)) {
+                    $potential_matches[] = $rewrite_slug;
+                    error_log('TCWP: Taxonomy rewrite slug segment match: ' . $rewrite_slug);
+                }
+            }
+            
+            // 3. Check for custom post type archive patterns
+            // Many custom taxonomies are associated with custom post types
+            $associated_post_types = $taxonomy_obj->object_type ?? array();
+            foreach ($associated_post_types as $post_type) {
+                $post_type_obj = get_post_type_object($post_type);
+                if ($post_type_obj && $post_type_obj->has_archive) {
+                    $archive_slug = is_string($post_type_obj->has_archive) ? $post_type_obj->has_archive : $post_type;
+                    if ($clean_path === $archive_slug || in_array($archive_slug, $path_segments)) {
+                        $potential_matches[] = $archive_slug;
+                        error_log('TCWP: Associated post type archive match: ' . $archive_slug . ' for taxonomy: ' . $taxonomy_name);
+                    }
+                }
+            }
+            
+            // Look for manual config patterns that match any of our potential matches
+            foreach ($potential_matches as $match) {
+                // Try exact pattern match
+                if (isset($manual_config[$match])) {
+                    $required_plugins = array_merge($required_plugins, $manual_config[$match]);
+                    error_log('TCWP: Found taxonomy archive config for pattern: ' . $match);
+                }
+                
+                // Try pattern with leading/trailing slashes
+                $slash_patterns = array('/' . $match, $match . '/', '/' . $match . '/');
+                foreach ($slash_patterns as $slash_pattern) {
+                    if (isset($manual_config[$slash_pattern])) {
+                        $required_plugins = array_merge($required_plugins, $manual_config[$slash_pattern]);
+                        error_log('TCWP: Found taxonomy archive config for slash pattern: ' . $slash_pattern);
+                    }
+                }
+            }
+        }
+        
+        // Special handling for common archive patterns that might not be detected above
+        foreach ($manual_config as $pattern => $plugins) {
+            $clean_pattern = trim($pattern, '/');
+            
+            // If this looks like an archive pattern and URL segments match
+            if (!empty($clean_pattern) && in_array($clean_pattern, $path_segments)) {
+                // Additional check: make sure this isn't a specific post/page
+                if (count($path_segments) <= 2) { // Archive pages typically have 1-2 segments
+                    $required_plugins = array_merge($required_plugins, $plugins);
+                    error_log('TCWP: Found archive pattern match: ' . $pattern . ' for URL: ' . $url);
+                }
+            }
+        }
+        
+        return array_unique($required_plugins);
     }
     
     /**
@@ -1932,6 +2217,147 @@ class TCWP_Manual_Config {
     }
     
     /**
+     * Get taxonomy inherited plugins for individual posts
+     */
+    private static function get_taxonomy_inherited_plugins_for_url($url, $manual_config) {
+        $required_plugins = array();
+        
+        // Parse the URL to get the post if possible
+        $parsed_url = parse_url($url);
+        $path = $parsed_url['path'] ?? '/';
+        
+        error_log('TCWP: Checking taxonomy inheritance for URL: ' . $url);
+        
+        // Try to get the post ID from the URL
+        $post_id = null;
+        
+        // Method 1: Try using WordPress's url_to_postid function
+        if (function_exists('url_to_postid')) {
+            $post_id = url_to_postid($url);
+            error_log('TCWP: url_to_postid returned: ' . $post_id);
+        }
+        
+        // Method 2: If that fails, try to get the queried object (works on actual page requests)
+        if (!$post_id && function_exists('get_queried_object_id')) {
+            $queried_id = get_queried_object_id();
+            if ($queried_id && get_post($queried_id)) {
+                $post_id = $queried_id;
+                error_log('TCWP: get_queried_object_id returned: ' . $post_id);
+            }
+        }
+        
+        // Method 3: Try to extract post ID/slug from URL path
+        if (!$post_id) {
+            $path_segments = explode('/', trim($path, '/'));
+            
+            // Look for numeric post ID or post slug in URL segments
+            foreach ($path_segments as $segment) {
+                if (!empty($segment)) {
+                    // Try numeric ID first
+                    if (is_numeric($segment)) {
+                        $test_post = get_post((int)$segment);
+                        if ($test_post) {
+                            $post_id = $test_post->ID;
+                            error_log('TCWP: Found post by numeric ID: ' . $post_id);
+                            break;
+                        }
+                    }
+                    
+                    // Try slug-based lookup for common post types
+                    $post_types = get_post_types(array('public' => true), 'names');
+                    foreach ($post_types as $post_type) {
+                        $post = get_page_by_path($segment, OBJECT, $post_type);
+                        if ($post) {
+                            $post_id = $post->ID;
+                            error_log('TCWP: Found post by slug in post type ' . $post_type . ': ' . $post_id);
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If we found a post, check its taxonomies
+        if ($post_id) {
+            $post = get_post($post_id);
+            error_log('TCWP: Found post: ' . $post->post_title . ' (ID: ' . $post_id . ')');
+            
+            // Get all taxonomies for this post
+            $post_taxonomies = get_object_taxonomies($post->post_type, 'objects');
+            
+            foreach ($post_taxonomies as $taxonomy_name => $taxonomy_obj) {
+                // Get terms assigned to this post for this taxonomy
+                $terms = get_the_terms($post_id, $taxonomy_name);
+                
+                if (!is_wp_error($terms) && !empty($terms)) {
+                    error_log('TCWP: Post has ' . count($terms) . ' terms in taxonomy ' . $taxonomy_name);
+                    
+                    foreach ($terms as $term) {
+                        error_log('TCWP: Checking term: ' . $term->name . ' (slug: ' . $term->slug . ')');
+                        
+                        // Build potential patterns for this term
+                        $potential_patterns = array();
+                        
+                        // Pattern 1: Taxonomy rewrite slug + term slug
+                        if ($taxonomy_obj->rewrite && isset($taxonomy_obj->rewrite['slug'])) {
+                            $rewrite_slug = $taxonomy_obj->rewrite['slug'];
+                            $potential_patterns[] = '/' . $rewrite_slug . '/' . $term->slug . '/';
+                            $potential_patterns[] = '/' . $rewrite_slug . '/' . $term->slug;
+                            $potential_patterns[] = $rewrite_slug . '/' . $term->slug . '/';
+                            $potential_patterns[] = $rewrite_slug . '/' . $term->slug;
+                        }
+                        
+                        // Pattern 2: Taxonomy name + term slug
+                        $potential_patterns[] = '/' . $taxonomy_name . '/' . $term->slug . '/';
+                        $potential_patterns[] = '/' . $taxonomy_name . '/' . $term->slug;
+                        $potential_patterns[] = $taxonomy_name . '/' . $term->slug . '/';
+                        $potential_patterns[] = $taxonomy_name . '/' . $term->slug;
+                        
+                        // Pattern 3: Just term slug
+                        $potential_patterns[] = '/' . $term->slug . '/';
+                        $potential_patterns[] = '/' . $term->slug;
+                        $potential_patterns[] = $term->slug . '/';
+                        $potential_patterns[] = $term->slug;
+                        
+                        // Check each potential pattern against manual config
+                        foreach ($potential_patterns as $pattern) {
+                            if (isset($manual_config[$pattern]) && !empty($manual_config[$pattern])) {
+                                $required_plugins = array_merge($required_plugins, $manual_config[$pattern]);
+                                error_log('TCWP: Found taxonomy inheritance match - pattern: ' . $pattern . ' for term: ' . $term->name);
+                            }
+                        }
+                        
+                        // SPECIAL CASE: For asset-type taxonomy, also check variations
+                        if ($taxonomy_name === 'asset-type' || strpos($taxonomy_name, 'asset') !== false) {
+                            $asset_patterns = array(
+                                '/asset-typ/' . $term->slug . '/',
+                                '/asset-typ/' . $term->slug,
+                                'asset-typ/' . $term->slug . '/',
+                                'asset-typ/' . $term->slug,
+                                '/asset-type/' . $term->slug . '/',
+                                '/asset-type/' . $term->slug,
+                                'asset-type/' . $term->slug . '/',
+                                'asset-type/' . $term->slug,
+                            );
+                            
+                            foreach ($asset_patterns as $pattern) {
+                                if (isset($manual_config[$pattern]) && !empty($manual_config[$pattern])) {
+                                    $required_plugins = array_merge($required_plugins, $manual_config[$pattern]);
+                                    error_log('TCWP: Found asset-type inheritance match - pattern: ' . $pattern . ' for term: ' . $term->name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            error_log('TCWP: Could not determine post ID for URL: ' . $url);
+        }
+        
+        return array_unique($required_plugins);
+    }
+    
+    /**
      * Get smart plugin suggestions based on content type
      */
     public static function get_smart_plugin_suggestions($item_type, $post_type = '', $taxonomy = '') {
@@ -2022,6 +2448,263 @@ class TCWP_Manual_Config {
         $stats['most_used_plugins'] = array_slice($plugin_usage, 0, 10, true);
         
         return $stats;
+    }
+    
+    /**
+     * Export manual configuration to XML
+     */
+    public static function export_configuration_xml() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized access');
+        }
+        
+        $manual_config = get_option('tcwp_manual_config', array());
+        $site_items = self::get_all_site_items();
+        
+        // Create XML document
+        $xml = new DOMDocument('1.0', 'UTF-8');
+        $xml->formatOutput = true;
+        
+        // Root element
+        $root = $xml->createElement('turbo_charge_wp_config');
+        $root->setAttribute('version', '1.0');
+        $root->setAttribute('exported', current_time('mysql'));
+        $xml->appendChild($root);
+        
+        // Add site information
+        $site_info = $xml->createElement('site_info');
+        $site_info->appendChild($xml->createElement('site_url', get_site_url()));
+        $site_info->appendChild($xml->createElement('site_name', get_bloginfo('name')));
+        $site_info->appendChild($xml->createElement('plugin_version', TCWP_VERSION ?? '1.0'));
+        $root->appendChild($site_info);
+        
+        // Group configurations by type
+        $config_by_type = array(
+            'pages' => array(),
+            'posts' => array(), 
+            'archives' => array(),
+            'woocommerce' => array(),
+            'custom_posts' => array(),
+            'taxonomies' => array(),
+            'menu_items' => array(),
+            'other' => array()
+        );
+        
+        foreach ($manual_config as $pattern => $plugins) {
+            $config_item = array(
+                'pattern' => $pattern,
+                'plugins' => $plugins,
+                'title' => '',
+                'type' => 'other'
+            );
+            
+            // Find matching site item for additional metadata
+            foreach ($site_items as $item) {
+                if ($item['pattern'] === $pattern) {
+                    $config_item['title'] = $item['title'];
+                    $config_item['type'] = $item['type'];
+                    if (isset($item['post_type'])) $config_item['post_type'] = $item['post_type'];
+                    if (isset($item['taxonomy'])) $config_item['taxonomy'] = $item['taxonomy'];
+                    break;
+                }
+            }
+            
+            // Categorize by type
+            switch ($config_item['type']) {
+                case 'page':
+                    $config_by_type['pages'][] = $config_item;
+                    break;
+                case 'post':
+                    $config_by_type['posts'][] = $config_item;
+                    break;
+                case 'archive':
+                    $config_by_type['archives'][] = $config_item;
+                    break;
+                case 'custom_post':
+                    $config_by_type['custom_posts'][] = $config_item;
+                    break;
+                case 'taxonomy':
+                    $config_by_type['taxonomies'][] = $config_item;
+                    break;
+                case 'menu_item':
+                    $config_by_type['menu_items'][] = $config_item;
+                    break;
+                default:
+                    // Check for WooCommerce patterns
+                    if (in_array($pattern, ['shop', 'cart', 'checkout', 'my-account']) || 
+                        strpos($pattern, 'product') !== false || strpos($pattern, 'wc-') !== false) {
+                        $config_by_type['woocommerce'][] = $config_item;
+                    } else {
+                        $config_by_type['other'][] = $config_item;
+                    }
+                    break;
+            }
+        }
+        
+        // Add each configuration type to XML
+        foreach ($config_by_type as $type => $configs) {
+            if (empty($configs)) continue;
+            
+            $type_element = $xml->createElement($type);
+            $root->appendChild($type_element);
+            
+            foreach ($configs as $config) {
+                $item_element = $xml->createElement('item');
+                $item_element->setAttribute('pattern', $config['pattern']);
+                
+                if (!empty($config['title'])) {
+                    $item_element->appendChild($xml->createElement('title', htmlspecialchars($config['title'])));
+                }
+                
+                if (!empty($config['post_type'])) {
+                    $item_element->appendChild($xml->createElement('post_type', $config['post_type']));
+                }
+                
+                if (!empty($config['taxonomy'])) {
+                    $item_element->appendChild($xml->createElement('taxonomy', $config['taxonomy']));
+                }
+                
+                $plugins_element = $xml->createElement('plugins');
+                foreach ($config['plugins'] as $plugin) {
+                    $plugin_element = $xml->createElement('plugin', htmlspecialchars($plugin));
+                    $plugins_element->appendChild($plugin_element);
+                }
+                $item_element->appendChild($plugins_element);
+                
+                $type_element->appendChild($item_element);
+            }
+        }
+        
+        // Send file for download
+        $filename = 'turbo-charge-wp-config-' . date('Y-m-d-H-i-s') . '.xml';
+        
+        header('Content-Type: application/xml');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Expires: Sat, 26 Jul 1997 05:00:00 GMT');
+        
+        echo $xml->saveXML();
+        exit;
+    }
+    
+    /**
+     * Import manual configuration from XML
+     */
+    public static function import_configuration_xml() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized access');
+        }
+        
+        if (!isset($_FILES['import_file']) || $_FILES['import_file']['error'] !== UPLOAD_ERR_OK) {
+            return array('success' => false, 'message' => 'No file uploaded or upload error occurred.');
+        }
+        
+        $file = $_FILES['import_file'];
+        
+        // Validate file type
+        if ($file['type'] !== 'text/xml' && $file['type'] !== 'application/xml' && pathinfo($file['name'], PATHINFO_EXTENSION) !== 'xml') {
+            return array('success' => false, 'message' => 'Please upload a valid XML file.');
+        }
+        
+        // Read and parse XML
+        $xml_content = file_get_contents($file['tmp_name']);
+        if ($xml_content === false) {
+            return array('success' => false, 'message' => 'Could not read the uploaded file.');
+        }
+        
+        // Disable XML entity loading for security
+        $previous_setting = libxml_disable_entity_loader(true);
+        
+        try {
+            $xml = new DOMDocument();
+            $xml->loadXML($xml_content, LIBXML_NOENT | LIBXML_DTDLOAD | LIBXML_DTDATTR);
+            
+            // Validate root element
+            if ($xml->documentElement->nodeName !== 'turbo_charge_wp_config') {
+                return array('success' => false, 'message' => 'Invalid XML format. Expected Turbo Charge WP configuration file.');
+            }
+            
+            $imported_config = array();
+            $import_stats = array(
+                'pages' => 0,
+                'posts' => 0,
+                'archives' => 0,
+                'woocommerce' => 0,
+                'custom_posts' => 0,
+                'taxonomies' => 0,
+                'menu_items' => 0,
+                'other' => 0
+            );
+            
+            // Process each configuration type
+            $config_types = ['pages', 'posts', 'archives', 'woocommerce', 'custom_posts', 'taxonomies', 'menu_items', 'other'];
+            
+            foreach ($config_types as $type) {
+                $type_elements = $xml->getElementsByTagName($type);
+                if ($type_elements->length === 0) continue;
+                
+                $type_element = $type_elements->item(0);
+                $items = $type_element->getElementsByTagName('item');
+                
+                foreach ($items as $item) {
+                    $pattern = $item->getAttribute('pattern');
+                    if (empty($pattern)) continue;
+                    
+                    $plugins = array();
+                    $plugins_elements = $item->getElementsByTagName('plugins');
+                    if ($plugins_elements->length > 0) {
+                        $plugin_elements = $plugins_elements->item(0)->getElementsByTagName('plugin');
+                        foreach ($plugin_elements as $plugin_element) {
+                            $plugin_name = trim($plugin_element->textContent);
+                            if (!empty($plugin_name)) {
+                                $plugins[] = sanitize_text_field($plugin_name);
+                            }
+                        }
+                    }
+                    
+                    if (!empty($plugins)) {
+                        $imported_config[sanitize_text_field($pattern)] = $plugins;
+                        $import_stats[$type]++;
+                    }
+                }
+            }
+            
+            if (empty($imported_config)) {
+                return array('success' => false, 'message' => 'No valid configurations found in the XML file.');
+            }
+            
+            // Handle import mode
+            $import_mode = $_POST['import_mode'] ?? 'merge';
+            
+            if ($import_mode === 'replace') {
+                // Replace entire configuration
+                update_option('tcwp_manual_config', $imported_config);
+                $message = 'Configuration replaced successfully! ';
+            } else {
+                // Merge with existing configuration
+                $existing_config = get_option('tcwp_manual_config', array());
+                $merged_config = array_merge($existing_config, $imported_config);
+                update_option('tcwp_manual_config', $merged_config);
+                $message = 'Configuration merged successfully! ';
+            }
+            
+            $total_imported = array_sum($import_stats);
+            $stats_message = "Imported {$total_imported} configurations: ";
+            $stats_parts = array();
+            foreach ($import_stats as $type => $count) {
+                if ($count > 0) {
+                    $stats_parts[] = "{$count} " . str_replace('_', ' ', $type);
+                }
+            }
+            $message .= $stats_message . implode(', ', $stats_parts) . '.';
+            
+            return array('success' => true, 'message' => $message);
+            
+        } catch (Exception $e) {
+            return array('success' => false, 'message' => 'Error parsing XML file: ' . $e->getMessage());
+        } finally {
+            libxml_disable_entity_loader($previous_setting);
+        }
     }
 }
 
