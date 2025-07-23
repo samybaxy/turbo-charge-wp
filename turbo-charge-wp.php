@@ -3,16 +3,16 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.0
+ * Version: 2.3.1
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: turbo-charge-wp
  * Domain Path: /languages
- * Requires at least: 6.0
+ * Requires at least: 6.4
  * Tested up to: 6.7
- * Requires PHP: 7.4
+ * Requires PHP: 8.4
  * Network: false
  *
  * @package TurboChargeWP
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.0');
+define('TCWP_VERSION', '2.3.1');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -184,8 +184,8 @@ class TurboChargeWP {
             add_action('wp_ajax_tcwp_autosave_config', array($this, 'handle_autosave_config'));
         }
         
-        // Add frontend debug display if debug mode OR manual override is enabled (before early return)
-        if (!empty(self::$options['debug_mode']) || !empty(self::$options['manual_override'])) {
+        // Add frontend debug display only if debug mode is enabled (before early return)
+        if (!empty(self::$options['debug_mode'])) {
             add_action('wp_footer', array($this, 'display_debug_info'));
             add_action('wp_head', array($this, 'init_debug_mode'));
         }
@@ -610,6 +610,11 @@ class TurboChargeWP {
                 $required_plugins[] = 'wpforms-lite/wpforms.php';
             }
             
+            // ENHANCED: PDF viewer shortcode detection
+            if (strpos($content, '[pdf_view') !== false && in_array('code-snippets/code-snippets.php', $available_plugins)) {
+                $required_plugins[] = 'code-snippets/code-snippets.php';
+            }
+            
             // Elementor check (optimized)
             if ($post->ID && function_exists('get_post_meta') && get_post_meta($post->ID, '_elementor_edit_mode', true) === 'builder') {
                 if (in_array('elementor/elementor.php', $available_plugins)) {
@@ -621,7 +626,76 @@ class TurboChargeWP {
             }
         }
         
+        // ENHANCED: Taxonomy-based plugin detection for individual posts
+        if ($post && $post->ID) {
+            $required_plugins = array_merge($required_plugins, $this->get_taxonomy_based_plugins($post, $available_plugins));
+        }
+        
         return $required_plugins;
+    }
+    
+    /**
+     * Get plugins based on post's taxonomy assignments (for manual config inheritance)
+     */
+    private function get_taxonomy_based_plugins($post, $available_plugins) {
+        $required_plugins = array();
+        
+        // Get all taxonomies for this post type
+        $post_taxonomies = get_object_taxonomies($post->post_type, 'names');
+        
+        foreach ($post_taxonomies as $taxonomy_name) {
+            // Get terms assigned to this post for this taxonomy
+            $terms = get_the_terms($post->ID, $taxonomy_name);
+            
+            if (!is_wp_error($terms) && !empty($terms)) {
+                foreach ($terms as $term) {
+                    // Check for asset-type specific plugin requirements
+                    if ($taxonomy_name === 'asset-type' || $taxonomy_name === 'asset_type') {
+                        switch (strtolower($term->slug)) {
+                            case 'pdf':
+                            case 'document':
+                                // PDF documents need code-snippets for PDF viewer
+                                if (in_array('code-snippets/code-snippets.php', $available_plugins)) {
+                                    $required_plugins[] = 'code-snippets/code-snippets.php';
+                                }
+                                break;
+                                
+                            case 'video':
+                            case 'media':
+                                // Videos need Presto Player
+                                if (in_array('presto-player/presto-player.php', $available_plugins)) {
+                                    $required_plugins[] = 'presto-player/presto-player.php';
+                                }
+                                break;
+                                
+                            default:
+                                // Other media types use EmbedPress
+                                if (in_array('embedpress/embedpress.php', $available_plugins)) {
+                                    $required_plugins[] = 'embedpress/embedpress.php';
+                                }
+                                break;
+                        }
+                    }
+                    
+                    // Add Jet Engine plugins for custom taxonomies
+                    if (!in_array($taxonomy_name, array('category', 'post_tag'))) {
+                        $jet_plugins = array(
+                            'jet-engine/jet-engine.php',
+                            'jet-elements/jet-elements.php',
+                            'jet-smart-filters/jet-smart-filters.php'
+                        );
+                        
+                        foreach ($jet_plugins as $jet_plugin) {
+                            if (in_array($jet_plugin, $available_plugins)) {
+                                $required_plugins[] = $jet_plugin;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return array_unique($required_plugins);
     }
     
     /**
@@ -674,16 +748,34 @@ class TurboChargeWP {
     }
     
     /**
-     * Check for critical operations - FIXED: Preserve admin functionality
+     * Check for critical operations - FIXED: Allow filtering during cron and REST
      */
     private function is_critical_operation() {
-        // Never filter during these critical scenarios
-        return (
-            (defined('WP_INSTALLING') && WP_INSTALLING) ||
-            (defined('DOING_CRON') && DOING_CRON) ||
-            (defined('WP_CLI') && constant('WP_CLI')) ||
-            (defined('REST_REQUEST') && REST_REQUEST)
-        );
+        // CRITICAL FIX: Only block filtering for truly critical operations
+        // WordPress cron and REST requests should still allow plugin filtering
+        $critical_reasons = array();
+        
+        if (defined('WP_INSTALLING') && WP_INSTALLING) {
+            $critical_reasons[] = 'WP_INSTALLING';
+        }
+        if (defined('WP_CLI') && constant('WP_CLI')) {
+            $critical_reasons[] = 'WP_CLI';
+        }
+        
+        // REMOVED: DOING_CRON - cron jobs should still allow plugin filtering
+        // REMOVED: REST_REQUEST - REST API should still allow plugin filtering
+        
+        $is_critical = !empty($critical_reasons);
+        
+        if ($is_critical && WP_DEBUG) {
+            error_log('TCWP: Critical operation detected: ' . implode(', ', $critical_reasons));
+        } elseif (WP_DEBUG && (defined('DOING_CRON') && DOING_CRON)) {
+            error_log('TCWP: DOING_CRON detected but allowing filtering');
+        } elseif (WP_DEBUG && (defined('REST_REQUEST') && REST_REQUEST)) {
+            error_log('TCWP: REST_REQUEST detected but allowing filtering');
+        }
+        
+        return $is_critical;
     }
     
     /**
