@@ -63,8 +63,16 @@ class TCWP_Manual_Config {
             $patterns = $_POST['manual_config_patterns'] ?? array();
             $plugins = $_POST['manual_config_plugins'] ?? array();
             
-            // Get existing configuration
-            $manual_config = get_option('tcwp_manual_config', array());
+            // Debug: Check for duplicate patterns before processing
+            $pattern_counts = array_count_values($patterns);
+            $duplicates = array_filter($pattern_counts, function($count) { return $count > 1; });
+            if (!empty($duplicates)) {
+                error_log('TCWP AJAX: WARNING - Duplicate patterns detected: ' . print_r($duplicates, true));
+            }
+            
+            
+            // Start with empty configuration instead of existing - this is the fix!
+            $manual_config = array();
             
             // Process configurations
             $configured_patterns = array();
@@ -74,17 +82,28 @@ class TCWP_Manual_Config {
             foreach ($patterns as $pattern) {
                 if (!empty($pattern)) {
                     $pattern = sanitize_text_field($pattern);
-                    $pattern_plugins = isset($plugins[$pattern]) ? array_map('sanitize_text_field', $plugins[$pattern]) : array();
                     
-                    if (!empty($pattern_plugins)) {
-                        $manual_config[$pattern] = $pattern_plugins;
-                        $configured_patterns[] = $pattern;
-                        $plugin_counts[$pattern] = count($pattern_plugins);
-                        $total_plugins += count($pattern_plugins);
+                    // Handle both array format (multiple plugins) and empty string format (no plugins)
+                    if (isset($plugins[$pattern])) {
+                        if (is_array($plugins[$pattern])) {
+                            $pattern_plugins = array_map('sanitize_text_field', $plugins[$pattern]);
+                        } else {
+                            // Empty string means no plugins selected - convert to empty array
+                            $pattern_plugins = array();
+                        }
                     } else {
-                        // Remove empty configurations
-                        unset($manual_config[$pattern]);
+                        $pattern_plugins = array();
                     }
+                    
+                    // Debug logging
+                    error_log('TCWP AJAX: Processing pattern "' . $pattern . '" with ' . count($pattern_plugins) . ' plugins: ' . implode(', ', $pattern_plugins));
+                    
+                    // Always save the configuration, even if empty (for "none" selections)
+                    $manual_config[$pattern] = $pattern_plugins;
+                    $configured_patterns[] = $pattern;
+                    $plugin_counts[$pattern] = count($pattern_plugins);
+                    $total_plugins += count($pattern_plugins);
+                    
                 }
             }
             
@@ -92,6 +111,9 @@ class TCWP_Manual_Config {
             $success = update_option('tcwp_manual_config', $manual_config);
             
             if ($success) {
+                // Ensure database write is committed before proceeding
+                wp_cache_flush();
+                
                 // Clear cache after successful save
                 self::clear_site_items_cache();
                 
@@ -172,7 +194,14 @@ class TCWP_Manual_Config {
             'hierarchical' => false // Disable hierarchy to improve performance
         ));
         
+        $front_page_id = get_option('page_on_front');
+        
         foreach ($pages as $page) {
+            // Skip the front page to avoid duplicate with homepage entry
+            if ($front_page_id && $page->ID == $front_page_id) {
+                continue;
+            }
+            
             $permalink = get_permalink($page->ID);
             $items['page_' . $page->ID] = array(
                 'type' => 'page',
@@ -341,6 +370,24 @@ class TCWP_Manual_Config {
                 }
             }
             $menu_count++;
+        }
+        
+        // Remove duplicates based on pattern to prevent AJAX processing issues
+        $seen_patterns = array();
+        foreach ($items as $key => $item) {
+            if (isset($seen_patterns[$item['pattern']])) {
+                // Keep the higher priority item (lower number = higher priority)
+                if ($items[$seen_patterns[$item['pattern']]]['priority'] > $item['priority']) {
+                    // Remove the existing item, keep the new one
+                    unset($items[$seen_patterns[$item['pattern']]]);
+                    $seen_patterns[$item['pattern']] = $key;
+                } else {
+                    // Remove the new item, keep the existing one
+                    unset($items[$key]);
+                }
+            } else {
+                $seen_patterns[$item['pattern']] = $key;
+            }
         }
         
         // Sort by priority and title
@@ -1139,21 +1186,22 @@ class TCWP_Manual_Config {
                         if (pattern) {
                             patterns.push(pattern);
                             
-                            // Initialize array only if it doesn't exist
-                            if (!allPlugins[pattern]) {
-                                allPlugins[pattern] = [];
-                            }
+                            // Initialize array - always initialize for every pattern
+                            allPlugins[pattern] = [];
                             
                             // Collect checked plugins for this pattern - use specific pattern in selector
                             var pluginSelector = 'input[name="manual_config_plugins[' + pattern + '][]"]:checked';                            
                             var $checkedPlugins = $item.find(pluginSelector);
-                            if ( $checkedPlugins.length > 0 ) {
-                                $checkedPlugins.each(function() {
-                                    var pluginValue = $(this).val();
-                                    console.log('TCWP Debug: Adding plugin:', pluginValue);
-                                    allPlugins[pattern].push(pluginValue);
-                                });
-                            }
+                            
+                            // Always process, even if no plugins are checked (this is the fix!)
+                            $checkedPlugins.each(function() {
+                                var pluginValue = $(this).val();
+                                console.log('TCWP Debug: Adding plugin:', pluginValue);
+                                allPlugins[pattern].push(pluginValue);
+                            });
+                            
+                            // Log the final state for this pattern
+                            console.log('TCWP Debug: Pattern "' + pattern + '" has ' + allPlugins[pattern].length + ' plugins selected:', allPlugins[pattern]);
                         }
                     }
                 });
@@ -1165,9 +1213,14 @@ class TCWP_Manual_Config {
                 
                 // Add plugins to form data
                 Object.keys(allPlugins).forEach(function(pattern) {
-                    allPlugins[pattern].forEach(function(plugin) {
-                        formData.append('manual_config_plugins[' + pattern + '][]', plugin);
-                    });
+                    if (allPlugins[pattern].length === 0) {
+                        // Explicitly send empty array for patterns with no selected plugins
+                        formData.append('manual_config_plugins[' + pattern + ']', '');
+                    } else {
+                        allPlugins[pattern].forEach(function(plugin) {
+                            formData.append('manual_config_plugins[' + pattern + '][]', plugin);
+                        });
+                    }
                 });
                 
                 // Send AJAX request
@@ -1189,6 +1242,11 @@ class TCWP_Manual_Config {
                             if (stats && stats.configured_patterns) {
                                 console.log('TCWP Debug: Server confirmed configured patterns:', stats.configured_patterns);
                                 console.log('TCWP Debug: Server confirmed plugin counts:', stats.plugin_counts || 'N/A');
+                                
+                                // Specifically check for homepage pattern
+                                if (stats.plugin_counts && stats.plugin_counts['/'] !== undefined) {
+                                    console.log('TCWP Debug: Homepage "/" pattern has ' + stats.plugin_counts['/'] + ' plugins configured');
+                                }
                                 
                                 // Ensure all checkbox states reflect server data
                                 $('.tcwp-config-item').each(function() {
@@ -1544,6 +1602,8 @@ class TCWP_Manual_Config {
      * Render site pages tab
      */
     private static function render_site_pages_tab($all_site_items, $manual_config, $all_plugins) {
+        // Force reload the manual_config from database to ensure fresh data after autosave
+        $manual_config = get_option('tcwp_manual_config', array());
         ?>
         <div class="tcwp-search-box">
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
@@ -1593,14 +1653,14 @@ class TCWP_Manual_Config {
         
         foreach ($all_site_items as $key => $item) {
             $pattern = $item['pattern'];
-            if (isset($fresh_manual_config[$pattern]) && !empty($fresh_manual_config[$pattern])) {
+            if (isset($fresh_manual_config[$pattern])) {
                 $configured_count++;
                 $configured_patterns[] = $pattern;
                 $plugin_counts[$pattern] = count($fresh_manual_config[$pattern]);
                 $total_plugins_configured += $plugin_counts[$pattern];
                 
-                // Debug info for this specific pattern
-                error_log('TCWP Debug: Pattern "' . $pattern . '" has ' . $plugin_counts[$pattern] . ' plugins configured');
+                // Debug info for this specific pattern - include zero-plugin patterns
+                error_log('TCWP Debug: Pattern "' . $pattern . '" has ' . $plugin_counts[$pattern] . ' plugins configured' . ($plugin_counts[$pattern] === 0 ? ' (NONE selected)' : ''));
             }
         }
         
@@ -1638,7 +1698,7 @@ class TCWP_Manual_Config {
                 <?php foreach ($all_site_items as $key => $item): ?>
                     <?php
                     $selected_plugins = isset($manual_config[$item['pattern']]) ? $manual_config[$item['pattern']] : array();
-                    $is_configured = !empty($selected_plugins);
+                    $is_configured = isset($manual_config[$item['pattern']]);
                     ?>
                     <div class="tcwp-config-item <?php echo $is_configured ? 'configured' : 'not-configured'; ?>" 
                          data-type="<?php echo esc_attr($item['type']); ?>">
