@@ -464,8 +464,15 @@ class TCWP_Manual_Config {
         
         ?>
         <div class="wrap">
-            <h1>🎯 Manual Plugin Configuration</h1>
-            <p>Comprehensive control over plugin loading for every page, post, and menu item on your site.</p>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                    <h1 style="margin: 0;">🎯 Manual Plugin Configuration</h1>
+                    <p style="margin: 5px 0 0 0;">Comprehensive control over plugin loading for every page, post, and menu item on your site.</p>
+                </div>
+                <a href="<?php echo admin_url('admin.php?page=turbo-charge-wp'); ?>" class="button button-secondary" style="margin-left: 20px;">
+                    ← Back to Main Settings
+                </a>
+            </div>
             
             <!-- Tab Navigation -->
             <h2 class="nav-tab-wrapper">
@@ -502,6 +509,13 @@ class TCWP_Manual_Config {
                 <?php self::render_bulk_actions_tab($all_site_items, $manual_config, $all_plugins); ?>
             <?php endif; ?>
         </div>
+        
+        <!-- Bottom Navigation -->
+        <div style="text-align: center; margin: 30px 0; padding: 20px; border-top: 1px solid #ddd;">
+            <a href="<?php echo admin_url('admin.php?page=turbo-charge-wp'); ?>" class="button button-secondary">
+                ← Back to Main Settings
+            </a>
+        </div>
             
         </div>
         
@@ -520,6 +534,57 @@ class TCWP_Manual_Config {
         @keyframes tcwp-spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+        
+        /* Search box and pagination controls styling */
+        .tcwp-search-box {
+            background: #f9f9f9;
+            padding: 15px 20px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .tcwp-search-box input[type="text"] {
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        
+        .tcwp-search-box input[type="text"]:focus {
+            border-color: #0073aa;
+            box-shadow: 0 0 0 1px #0073aa;
+            outline: none;
+        }
+        
+        .tcwp-pagination-controls label {
+            color: #555;
+        }
+        
+        .tcwp-pagination-controls select {
+            min-width: 60px;
+        }
+        
+        .tcwp-pagination-controls select:focus {
+            border-color: #0073aa;
+            box-shadow: 0 0 0 1px #0073aa;
+            outline: none;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .tcwp-search-box > div {
+                flex-direction: column;
+                align-items: stretch !important;
+                gap: 15px !important;
+            }
+            
+            .tcwp-search-box input[type="text"] {
+                max-width: none !important;
+            }
+            
+            .tcwp-pagination-controls {
+                justify-content: center;
+            }
         }
         
         /* Prevent FOUC (Flash of Unstyled Content) */
@@ -1611,17 +1676,17 @@ class TCWP_Manual_Config {
         $manual_config = get_option('tcwp_manual_config', array());
         ?>
         <div class="tcwp-search-box">
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." style="flex: 1; min-width: 200px;" />
-                <div class="tcwp-pagination-controls" style="display: flex; gap: 10px; align-items: center;">
-                    <label for="tcwp-items-per-page">Items per page:</label>
-                    <select id="tcwp-items-per-page" style="padding: 5px;">
+            <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: space-between;">
+                <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." style="max-width: 400px; min-width: 250px; flex: 0 1 auto; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+                <div class="tcwp-pagination-controls" style="display: flex; gap: 12px; align-items: center; flex-shrink: 0;">
+                    <label for="tcwp-items-per-page" style="font-weight: 500; white-space: nowrap;">Items per page:</label>
+                    <select id="tcwp-items-per-page" style="padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; background: white;">
                         <option value="20">20</option>
                         <option value="50" selected>50</option>
                         <option value="100">100</option>
                         <option value="all">All</option>
                     </select>
-                    <div id="tcwp-pagination-info" style="font-size: 14px; color: #666;"></div>
+                    <div id="tcwp-pagination-info" style="font-size: 14px; color: #666; white-space: nowrap; min-width: 120px;"></div>
                 </div>
             </div>
         </div>
