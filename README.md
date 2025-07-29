@@ -218,6 +218,35 @@ turbo-charge-wp/
 
 ## Changelog
 
+### 2.3.3 (2025-07-29)
+**New Feature: Sitewide Plugins Configuration**
+
+#### 🎯 Major New Features
+- **Sitewide Plugins Tab**: Added dedicated "🌐 Sitewide Plugins" tab in Manual Configuration interface
+- **Always-On Plugin Loading**: Configure plugins that load on every page regardless of individual page settings
+- **Precedence Override**: Sitewide plugins take priority over manual configuration unchecked plugins
+- **Essential Plugin Enhancement**: Perfect for security, analytics, and core functionality plugins
+
+#### 🚀 Enhanced User Experience
+- **Intuitive Interface**: Clean checkbox interface for selecting sitewide plugins
+- **Clear Documentation**: Built-in explanations of how sitewide plugins work with precedence rules
+- **Visual Feedback**: Plugin names and folders displayed for easy identification
+- **Scrollable Interface**: Optimized for sites with many plugins
+
+#### 🔧 Technical Implementation
+- **Triple Integration**: Works with manual override mode, automatic mode, and no-config scenarios
+- **Performance Optimized**: Minimal overhead using efficient array merging
+- **WordPress Options API**: Uses `tcwp_sitewide_plugins` option for reliable storage
+- **Backward Compatible**: No breaking changes to existing functionality
+
+#### 📋 How It Works
+- **Manual Override Mode**: Sitewide plugins merge with manual config and security plugins
+- **Automatic Mode**: Sitewide plugins included after essential plugins, before URL/content detection
+- **No Config Mode**: Sitewide plugins merge with essential security plugins
+- **Always Active**: Selected plugins load regardless of individual page configuration
+
+**This update provides granular control over plugins that must always be active, solving the common need for site-wide essential plugins while maintaining the performance benefits of selective plugin loading.**
+
 ### 2.3.2 (2025-07-23)
 **New Feature: XML Configuration Import/Export**
 

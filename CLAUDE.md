@@ -66,6 +66,7 @@ The plugin uses a multi-layered approach to determine which plugins to load:
 - **Zero-overhead design**: <0.1ms filtering time
 - **Early plugin interception**: Hooks into `option_active_plugins` before plugins load
 - **Manual configuration system**: Granular control over plugin loading per page
+- **Sitewide plugins**: Force certain plugins to load on every page regardless of configuration
 - **Built-in performance testing**: Real-time optimization metrics
 - **Debug mode**: Frontend visualization of plugin filtering
 
@@ -80,6 +81,9 @@ The plugin uses a multi-layered approach to determine which plugins to load:
 
 ### Manual Configuration (`tcwp_manual_config`)
 Stores pattern-to-plugins mapping for precise control over plugin loading per URL pattern.
+
+### Sitewide Plugins (`tcwp_sitewide_plugins`)
+Stores list of plugins that should always be loaded on every page, taking precedence over individual page configurations. These plugins will be included even if they are unchecked in manual configuration settings.
 
 ## Development Commands
 

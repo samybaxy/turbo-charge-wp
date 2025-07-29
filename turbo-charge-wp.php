@@ -3,7 +3,7 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.2
+ * Version: 2.3.3
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.2');
+define('TCWP_VERSION', '2.3.3');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -360,7 +360,12 @@ class TurboChargeWP {
                     'akismet/akismet.php',
                 );
                 $security_plugins = array_intersect($essential_security, $plugins);
-                $filtered_plugins = array_unique(array_merge($manual_plugins, $security_plugins));
+                
+                // Always include sitewide plugins
+                $sitewide_plugins = get_option('tcwp_sitewide_plugins', array());
+                $sitewide_plugins = array_intersect($sitewide_plugins, $plugins);
+                
+                $filtered_plugins = array_unique(array_merge($manual_plugins, $security_plugins, $sitewide_plugins));
                 
                 // Store debug info for manual override mode
                 if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
@@ -377,8 +382,14 @@ class TurboChargeWP {
                 
                 return $filtered_plugins;
             } else {
-                // No manual configuration found, return essential plugins only
+                // No manual configuration found, return essential plugins plus sitewide plugins
                 $essential_plugins = array_intersect(self::$essential_plugins, $plugins);
+                
+                // Always include sitewide plugins
+                $sitewide_plugins = get_option('tcwp_sitewide_plugins', array());
+                $sitewide_plugins = array_intersect($sitewide_plugins, $plugins);
+                
+                $essential_plugins = array_unique(array_merge($essential_plugins, $sitewide_plugins));
                 
                 if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
                     $filtered_out = array_diff($plugins, $essential_plugins);
@@ -432,6 +443,11 @@ class TurboChargeWP {
             
             // Start with essential plugins that must always be loaded
             $required_plugins = array_intersect(self::$essential_plugins, $plugins);
+            
+            // Always include sitewide plugins (highest priority after essential)
+            $sitewide_plugins = get_option('tcwp_sitewide_plugins', array());
+            $sitewide_plugins = array_intersect($sitewide_plugins, $plugins);
+            $required_plugins = array_unique(array_merge($required_plugins, $sitewide_plugins));
             
             // Check for manual configuration first (highest priority)
             $manual_plugins = $this->get_manual_plugins($plugins);

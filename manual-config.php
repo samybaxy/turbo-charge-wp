@@ -475,6 +475,9 @@ class TCWP_Manual_Config {
                 <a href="?page=tcwp-manual-config&tab=url_patterns" class="nav-tab <?php echo $current_tab === 'url_patterns' ? 'nav-tab-active' : ''; ?>">
                     🔗 URL Patterns
                 </a>
+                <a href="?page=tcwp-manual-config&tab=sitewide_plugins" class="nav-tab <?php echo $current_tab === 'sitewide_plugins' ? 'nav-tab-active' : ''; ?>">
+                    🌐 Sitewide Plugins
+                </a>
                 <a href="?page=tcwp-manual-config&tab=bulk_actions" class="nav-tab <?php echo $current_tab === 'bulk_actions' ? 'nav-tab-active' : ''; ?>">
                     ⚡ Bulk Actions
                 </a>
@@ -493,6 +496,8 @@ class TCWP_Manual_Config {
                 <?php self::render_site_pages_tab($all_site_items, $manual_config, $all_plugins); ?>
             <?php elseif ($current_tab === 'url_patterns'): ?>
                 <?php self::render_url_patterns_tab($manual_config, $all_plugins); ?>
+            <?php elseif ($current_tab === 'sitewide_plugins'): ?>
+                <?php self::render_sitewide_plugins_tab($all_plugins); ?>
             <?php elseif ($current_tab === 'bulk_actions'): ?>
                 <?php self::render_bulk_actions_tab($all_site_items, $manual_config, $all_plugins); ?>
             <?php endif; ?>
@@ -2009,6 +2014,61 @@ class TCWP_Manual_Config {
     }
     
     /**
+     * Render sitewide plugins tab
+     */
+    private static function render_sitewide_plugins_tab($all_plugins) {
+        // Handle form submission
+        if (isset($_POST['save_sitewide_plugins'])) {
+            $sitewide_plugins = $_POST['sitewide_plugins'] ?? array();
+            update_option('tcwp_sitewide_plugins', $sitewide_plugins);
+            echo '<div class="notice notice-success"><p>✅ Sitewide plugins configuration saved successfully!</p></div>';
+        }
+        
+        $sitewide_plugins = get_option('tcwp_sitewide_plugins', array());
+        ?>
+        <div class="notice notice-info">
+            <p><strong>🌐 Sitewide Plugins:</strong> Select plugins that should be loaded on <em>every page</em> regardless of manual configuration settings. These plugins will always be active even if they are unchecked in individual page configurations.</p>
+        </div>
+        
+        <form method="post" style="background: white; padding: 20px; border: 1px solid #ddd; border-radius: 4px;">
+            <h3>Enable Sitewide Plugins</h3>
+            <p>The plugins selected below will be loaded on every page, taking precedence over individual page configurations:</p>
+            
+            <div class="plugin-checkboxes" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; background: #f9f9f9;">
+                <?php foreach ($all_plugins as $plugin): ?>
+                    <?php 
+                    $plugin_name = self::get_plugin_name($plugin);
+                    $plugin_folder = basename(dirname($plugin));
+                    $checked = in_array($plugin, $sitewide_plugins) ? 'checked' : '';
+                    ?>
+                    <label style="display: block; margin-bottom: 8px; padding: 8px; background: white; border: 1px solid #e1e1e1; border-radius: 3px;">
+                        <input type="checkbox" name="sitewide_plugins[]" value="<?php echo esc_attr($plugin); ?>" <?php echo $checked; ?> style="margin-right: 10px;" />
+                        <div class="tcwp-plugin-name" style="display: inline-block;">
+                            <span class="tcwp-plugin-title" style="font-weight: 500;"><?php echo esc_html($plugin_name); ?></span>
+                            <span class="tcwp-plugin-path" style="color: #666; font-size: 0.9em; margin-left: 8px;"><?php echo esc_html($plugin_folder); ?></span>
+                        </div>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd;">
+                <?php submit_button('Save Sitewide Plugins', 'primary', 'save_sitewide_plugins', false); ?>
+                
+                <div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px;">
+                    <strong>ℹ️ How it works:</strong>
+                    <ul style="margin: 10px 0; padding-left: 20px;">
+                        <li>Sitewide plugins are <strong>always loaded</strong> on every page</li>
+                        <li>They take <strong>precedence over</strong> individual page configurations</li>
+                        <li>Even if a sitewide plugin is unchecked in a page's manual config, it will still load</li>
+                        <li>This is perfect for essential plugins like security, analytics, or core functionality</li>
+                    </ul>
+                </div>
+            </div>
+        </form>
+        <?php
+    }
+    
+    /**
      * Render a configuration row (legacy support)
      */
     private static function render_config_row($pattern, $selected_plugins, $all_plugins) {
@@ -2415,8 +2475,15 @@ class TCWP_Manual_Config {
             }
         }
         
-        $final_plugins = array_unique($required_plugins);
+        // Get sitewide plugins and merge them
+        $sitewide_plugins = get_option('tcwp_sitewide_plugins', array());
+        $all_plugins = array_merge($required_plugins, $sitewide_plugins);
+        $final_plugins = array_unique($all_plugins);
+        
         error_log('TCWP: Final plugins for URL ' . $url . ': ' . print_r($final_plugins, true));
+        if (!empty($sitewide_plugins)) {
+            error_log('TCWP: Sitewide plugins included: ' . print_r($sitewide_plugins, true));
+        }
         
         return $final_plugins;
     }
