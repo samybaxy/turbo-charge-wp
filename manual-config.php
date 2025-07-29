@@ -579,7 +579,8 @@ class TCWP_Manual_Config {
             }
             
             .tcwp-search-box input[type="text"] {
-                max-width: none !important;
+                width: 100% !important;
+                min-width: 250px !important;
             }
             
             .tcwp-pagination-controls {
@@ -1677,7 +1678,7 @@ class TCWP_Manual_Config {
         ?>
         <div class="tcwp-search-box">
             <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: space-between;">
-                <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." style="max-width: 400px; min-width: 250px; flex: 0 1 auto; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
+                <input type="text" id="tcwp-search" placeholder="🔍 Search pages, posts, and menu items..." style="width: 70%; min-width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" />
                 <div class="tcwp-pagination-controls" style="display: flex; gap: 12px; align-items: center; flex-shrink: 0;">
                     <label for="tcwp-items-per-page" style="font-weight: 500; white-space: nowrap;">Items per page:</label>
                     <select id="tcwp-items-per-page" style="padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; background: white;">
