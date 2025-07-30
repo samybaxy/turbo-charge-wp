@@ -101,7 +101,6 @@ function tcwp_mu_filter_plugins($value) {
         $filtered_plugins = array_intersect($required_plugins, $active_plugins);
         
         if (WP_DEBUG) {
-            error_log('TCWP MU: Manual override mode - filtered ' . count($active_plugins) . ' plugins down to ' . count($filtered_plugins) . ' for URL: ' . $current_url);
         }
         
         return $filtered_plugins;
@@ -158,7 +157,6 @@ function tcwp_mu_filter_plugins($value) {
     
     // Log for debugging
     if (WP_DEBUG) {
-        error_log('TCWP MU: Filtered ' . count($active_plugins) . ' plugins down to ' . count($filtered_plugins) . ' for URL: ' . $current_url);
     }
     
     return $filtered_plugins;

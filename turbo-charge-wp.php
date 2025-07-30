@@ -155,7 +155,6 @@ class TurboChargeWP {
      * Constructor - Ultra-lightweight initialization
      */
     private function __construct() {
-        error_log('TCWP Constructor called. is_admin=' . (is_admin() ? 'true' : 'false'));
         
         // Load options ONCE at startup with defaults
         self::$options = get_option('tcwp_options', array(
@@ -167,7 +166,6 @@ class TurboChargeWP {
             'manual_override' => false,
         ));
         
-        error_log('TCWP Constructor options: ' . print_r(self::$options, true));
         
         // Always register admin interface so users can access settings
         if (is_admin()) {
@@ -238,16 +236,12 @@ class TurboChargeWP {
      */
     public function filter_active_plugins($plugins) {
         // Debug logging
-        error_log('TCWP DEBUG: filter_active_plugins called. is_admin=' . (is_admin() ? 'true' : 'false'));
-        error_log('TCWP DEBUG: plugins count=' . count($plugins));
         
         // Only filter on frontend
         if (is_admin() || $this->is_critical_operation()) {
-            error_log('TCWP DEBUG: Returning early - admin or critical operation');
             return $plugins;
         }
         
-        error_log('TCWP DEBUG: Proceeding with filtering');
         return $this->ultra_filter_plugins($plugins);
     }
     
@@ -286,34 +280,27 @@ class TurboChargeWP {
         static $recursion_guard = false;
         
         // Debug logging
-        error_log('TCWP DEBUG: pre_ultra_filter_plugins called. is_admin=' . (is_admin() ? 'true' : 'false'));
-        error_log('TCWP DEBUG: value=' . print_r($value, true));
         
         // Prevent infinite recursion
         if ($recursion_guard) {
-            error_log('TCWP DEBUG: Recursion guard triggered');
             return false;
         }
         
         // If value is already set, don't override
         if ($value !== false) {
-            error_log('TCWP DEBUG: Value already set, returning');
             return $value;
         }
         
         // CRITICAL: Never filter in admin - full backend functionality preserved
         if (is_admin()) {
-            error_log('TCWP DEBUG: Is admin, returning false');
             return false; // Let WordPress load all plugins in admin
         }
         
         // Don't filter during critical operations
         if ($this->is_critical_operation()) {
-            error_log('TCWP DEBUG: Critical operation, returning false');
             return false;
         }
         
-        error_log('TCWP DEBUG: Proceeding with pre-filter');
         $recursion_guard = true;
         
         try {
@@ -332,7 +319,6 @@ class TurboChargeWP {
             return $filtered_plugins;
             
         } catch (Exception $e) {
-            error_log('TCWP Pre-Filter Error: ' . $e->getMessage());
             return false;
         } finally {
             $recursion_guard = false;
@@ -502,8 +488,6 @@ class TurboChargeWP {
             // Log what we're filtering out for debugging
             if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
                 $filtered_out = array_diff($plugins, $filtered_plugins);
-                error_log('TCWP: Filtered out ' . count($filtered_out) . ' plugins: ' . implode(', ', $filtered_out));
-                error_log('TCWP: Keeping ' . count($filtered_plugins) . ' plugins: ' . implode(', ', $filtered_plugins));
                 
                 // Store debug info for frontend display
                 if (!empty(self::$options['debug_mode'])) {
@@ -521,7 +505,6 @@ class TurboChargeWP {
             
         } catch (Exception $e) {
             // Never break the site - return original on any error
-            error_log('TCWP Ultra Filter Error: ' . $e->getMessage());
             return $plugins;
         } finally {
             $filtering_active = false;
@@ -784,11 +767,8 @@ class TurboChargeWP {
         $is_critical = !empty($critical_reasons);
         
         if ($is_critical && WP_DEBUG) {
-            error_log('TCWP: Critical operation detected: ' . implode(', ', $critical_reasons));
         } elseif (WP_DEBUG && (defined('DOING_CRON') && DOING_CRON)) {
-            error_log('TCWP: DOING_CRON detected but allowing filtering');
         } elseif (WP_DEBUG && (defined('REST_REQUEST') && REST_REQUEST)) {
-            error_log('TCWP: REST_REQUEST detected but allowing filtering');
         }
         
         return $is_critical;
@@ -800,7 +780,6 @@ class TurboChargeWP {
     public function init_debug_mode() {
         // If manual override is enabled, always set debug info
         if (!empty(self::$options['manual_override'])) {
-            error_log('TCWP DEBUG: Manual override mode detected, setting debug info');
             
             $active_plugins = get_option('active_plugins', array());
             $current_url = $_SERVER['REQUEST_URI'] ?? '/';
@@ -809,9 +788,7 @@ class TurboChargeWP {
             $manual_plugins = array();
             if (class_exists('TCWP_Manual_Config')) {
                 $manual_plugins = TCWP_Manual_Config::get_manual_plugins_for_url($current_url);
-                error_log('TCWP DEBUG: Manual plugins for URL ' . $current_url . ': ' . print_r($manual_plugins, true));
             } else {
-                error_log('TCWP DEBUG: TCWP_Manual_Config class not found');
             }
             
             // Always include essential security plugins
@@ -827,7 +804,6 @@ class TurboChargeWP {
             $expected_plugins = array_intersect($expected_plugins, $active_plugins);
             
             if (!empty($manual_plugins)) {
-                error_log('TCWP DEBUG: Setting debug info with manual plugins');
                 self::$debug_info = array(
                     'filtered_plugins' => $expected_plugins,
                     'filtered_out' => array_diff($active_plugins, $expected_plugins),
@@ -838,7 +814,6 @@ class TurboChargeWP {
                 );
             } else {
                 // No manual configuration found
-                error_log('TCWP DEBUG: No manual plugins found, using essential plugins only');
                 $essential_plugins = array_intersect(self::$essential_plugins, $active_plugins);
                 self::$debug_info = array(
                     'filtered_plugins' => $essential_plugins,
@@ -1447,22 +1422,17 @@ class TurboChargeWP {
      */
     public function handle_autosave_config() {
         // Debug: Log that handler was called
-        error_log('TCWP AJAX: handle_autosave_config called');
-        error_log('TCWP AJAX: POST data: ' . print_r($_POST, true));
         
         // Verify nonce
         if (!wp_verify_nonce($_POST['nonce'], 'tcwp_autosave_nonce')) {
-            error_log('TCWP AJAX: Nonce verification failed');
             wp_send_json_error('Security check failed');
         }
         
         // Check user permissions
         if (!current_user_can('manage_options')) {
-            error_log('TCWP AJAX: User permissions check failed');
             wp_send_json_error('Insufficient permissions');
         }
         
-        error_log('TCWP AJAX: Nonce and permissions OK, proceeding...');
         
         try {
             // CRITICAL FIX: Ensure manual config class is loaded for AJAX requests
@@ -1473,7 +1443,6 @@ class TurboChargeWP {
             }
             
             // Debug: Log received data
-            error_log('TCWP AJAX: Received POST data: ' . print_r($_POST, true));
             
             // Get form data
             $config_type = sanitize_text_field($_POST['config_type']);
@@ -1481,8 +1450,6 @@ class TurboChargeWP {
             $plugins = isset($_POST['manual_config_plugins']) ? (array) $_POST['manual_config_plugins'] : array();
             
             // Debug: Log parsed data
-            error_log('TCWP AJAX: Patterns count: ' . count($patterns));
-            error_log('TCWP AJAX: Plugins keys: ' . implode(', ', array_keys($plugins)));
             
             // Sanitize patterns
             $patterns = array_map('sanitize_text_field', $patterns);
@@ -1515,12 +1482,9 @@ class TurboChargeWP {
             }
             
             // Debug: Log final config
-            error_log('TCWP AJAX: Final config: ' . print_r($config, true));
-            error_log('TCWP AJAX: Existing config had ' . count($existing_config) . ' items, new config has ' . count($config) . ' items');
             
             // Update option
             $update_result = update_option('tcwp_manual_config', $config);
-            error_log('TCWP AJAX: Update result: ' . ($update_result ? 'success' : 'failed'));
             
             // Update last save time
             update_option('tcwp_manual_config_last_save', time());
@@ -1539,12 +1503,10 @@ class TurboChargeWP {
             );
             
             // Enhanced logging
-            error_log('TCWP AJAX: Sending stats: ' . json_encode($stats));
             
             wp_send_json_success($stats);
             
         } catch (Exception $e) {
-            error_log('TCWP AJAX Error: ' . $e->getMessage());
             wp_send_json_error('Save failed: ' . $e->getMessage());
         }
     }

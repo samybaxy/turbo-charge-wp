@@ -66,9 +66,6 @@ class TCWP_Manual_Config {
             // Debug: Check for duplicate patterns before processing
             $pattern_counts = array_count_values($patterns);
             $duplicates = array_filter($pattern_counts, function($count) { return $count > 1; });
-            if (!empty($duplicates)) {
-                error_log('TCWP AJAX: WARNING - Duplicate patterns detected: ' . print_r($duplicates, true));
-            }
             
             
             // Start with empty configuration instead of existing - this is the fix!
@@ -94,9 +91,6 @@ class TCWP_Manual_Config {
                     } else {
                         $pattern_plugins = array();
                     }
-                    
-                    // Debug logging
-                    error_log('TCWP AJAX: Processing pattern "' . $pattern . '" with ' . count($pattern_plugins) . ' plugins: ' . implode(', ', $pattern_plugins));
                     
                     // Always save the configuration, even if empty (for "none" selections)
                     $manual_config[$pattern] = $pattern_plugins;
@@ -129,7 +123,6 @@ class TCWP_Manual_Config {
             }
             
         } catch (Exception $e) {
-            error_log('TCWP AJAX Error: ' . $e->getMessage());
             wp_send_json_error('Server error: ' . $e->getMessage());
         }
     }
@@ -450,13 +443,6 @@ class TCWP_Manual_Config {
         $all_plugins = get_option('active_plugins', array());
         $all_site_items = self::get_all_site_items();
         
-        // Debug output
-        if (WP_DEBUG) {
-            error_log('TCWP Debug: Manual config loaded: ' . print_r($manual_config, true));
-            error_log('TCWP Debug: All plugins count: ' . count($all_plugins));
-            error_log('TCWP Debug: All site items count: ' . count($all_site_items));
-        }
-        
         // Get current tab and preserve filter tab
         $current_tab = $_GET['tab'] ?? 'site_pages';
         $current_filter_tab = $_GET['filter_tab'] ?? 'all';
@@ -464,12 +450,13 @@ class TCWP_Manual_Config {
         
         ?>
         <div class="wrap">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                    <h1 style="margin: 0;">🎯 Manual Plugin Configuration</h1>
-                    <p style="margin: 5px 0 0 0;">Comprehensive control over plugin loading for every page, post, and menu item on your site.</p>
-                </div>
-                <a href="<?php echo admin_url('admin.php?page=turbo-charge-wp'); ?>" class="button button-secondary" style="margin-left: 20px;">
+            <div style="margin-bottom: 10px;">
+                <h1 style="margin: 0;">🎯 Manual Plugin Configuration</h1>
+                <p style="margin: 5px 0 0 0;">Comprehensive control over plugin loading for every page, post, and menu item on your site.</p>
+            </div>
+            
+            <div style="text-align: center; margin: 15px 0;">
+                <a href="<?php echo admin_url('admin.php?page=turbo-charge-wp'); ?>" class="button button-secondary">
                     ← Back to Main Settings
                 </a>
             </div>
@@ -1719,9 +1706,6 @@ class TCWP_Manual_Config {
         $plugin_counts = [];
         $total_plugins_configured = 0;
         
-        // Debug entire configuration
-        error_log('TCWP Debug: Current manual_config: ' . json_encode($fresh_manual_config));
-        
         foreach ($all_site_items as $key => $item) {
             $pattern = $item['pattern'];
             if (isset($fresh_manual_config[$pattern])) {
@@ -1729,17 +1713,8 @@ class TCWP_Manual_Config {
                 $configured_patterns[] = $pattern;
                 $plugin_counts[$pattern] = count($fresh_manual_config[$pattern]);
                 $total_plugins_configured += $plugin_counts[$pattern];
-                
-                // Debug info for this specific pattern - include zero-plugin patterns
-                error_log('TCWP Debug: Pattern "' . $pattern . '" has ' . $plugin_counts[$pattern] . ' plugins configured' . ($plugin_counts[$pattern] === 0 ? ' (NONE selected)' : ''));
             }
         }
-        
-        // Debug output with detailed information
-        error_log('TCWP Debug: Server-side configured count: ' . $configured_count . ' of ' . $total_count);
-        error_log('TCWP Debug: Total plugins configured: ' . $total_plugins_configured);
-        error_log('TCWP Debug: Configured patterns: ' . implode(', ', $configured_patterns));
-        error_log('TCWP Debug: Plugin counts by pattern: ' . json_encode($plugin_counts));
         ?>
         
         <div class="tcwp-stats">
@@ -2356,34 +2331,28 @@ class TCWP_Manual_Config {
         $path = $parsed_url['path'] ?? '/';
         
         // Debug logging
-        error_log('TCWP: Getting manual plugins for URL: ' . $url . ' (path: ' . $path . ')');
-        error_log('TCWP: Manual config patterns: ' . print_r(array_keys($manual_config), true));
         
         // PRIORITY 1: Try exact URL path match first
         if (isset($manual_config[$path])) {
             $required_plugins = array_merge($required_plugins, $manual_config[$path]);
-            error_log('TCWP: Found exact path match for: ' . $path);
         }
         
         // PRIORITY 2: Check for taxonomy archive pages (before general taxonomy matching)
         $taxonomy_archive_plugins = self::get_taxonomy_archive_plugins_for_url($url, $manual_config);
         if (!empty($taxonomy_archive_plugins)) {
             $required_plugins = array_merge($required_plugins, $taxonomy_archive_plugins);
-            error_log('TCWP: Added taxonomy archive plugins: ' . print_r($taxonomy_archive_plugins, true));
         }
         
         // PRIORITY 3: Enhanced taxonomy support: Check if this is a taxonomy URL
         $taxonomy_plugins = self::get_taxonomy_plugins_for_url($url, $manual_config);
         if (!empty($taxonomy_plugins)) {
             $required_plugins = array_merge($required_plugins, $taxonomy_plugins);
-            error_log('TCWP: Added taxonomy plugins: ' . print_r($taxonomy_plugins, true));
         }
         
         // PRIORITY 4: Taxonomy inheritance for individual posts
         $inherited_plugins = self::get_taxonomy_inherited_plugins_for_url($url, $manual_config);
         if (!empty($inherited_plugins)) {
             $required_plugins = array_merge($required_plugins, $inherited_plugins);
-            error_log('TCWP: Added taxonomy inherited plugins: ' . print_r($inherited_plugins, true));
         }
         
         // SIMPLIFIED APPROACH: Try partial matching for JetEngine and similar complex URLs
@@ -2408,7 +2377,6 @@ class TCWP_Manual_Config {
                 
                 if ($all_parts_match && !empty($pattern_parts)) {
                     $required_plugins = array_merge($required_plugins, $plugins);
-                    error_log('TCWP: Found segment-based match: ' . $pattern . ' for URL: ' . $url);
                 }
             }
         }
@@ -2428,7 +2396,6 @@ class TCWP_Manual_Config {
                 // Match menu items by their target URL path
                 if ($path === $menu_path) {
                     $required_plugins = array_merge($required_plugins, $plugins);
-                    error_log('TCWP: Found menu pattern match: ' . $pattern);
                 }
             } else {
                 // Enhanced pattern matching - better URL handling
@@ -2442,7 +2409,6 @@ class TCWP_Manual_Config {
                 // SPECIFIC FIX: Better matching for /resources/ pattern
                 if ($pattern === '/resources/' && strpos($path, '/resources/') === 0) {
                     $pattern_matches = true;
-                    error_log('TCWP: RESOURCES PATTERN MATCHED for URL: ' . $url);
                 }
                 
                 // For taxonomy patterns, also try matching URL segments
@@ -2470,7 +2436,6 @@ class TCWP_Manual_Config {
                 
                 if ($pattern_matches) {
                     $required_plugins = array_merge($required_plugins, $plugins);
-                    error_log('TCWP: Found pattern match: ' . $pattern . ' for URL: ' . $url);
                 }
             }
         }
@@ -2496,7 +2461,6 @@ class TCWP_Manual_Config {
                 if (strpos($path, '/resources/') === 0 && strpos($content, '[pdf_view') !== false) {
                     if (!in_array('code-snippets/code-snippets.php', $required_plugins)) {
                         $required_plugins[] = 'code-snippets/code-snippets.php';
-                        error_log('TCWP: FORCED code-snippets for /resources/ URL with pdf_view shortcode: ' . $url);
                     }
                 }
                 
@@ -2515,7 +2479,6 @@ class TCWP_Manual_Config {
                         
                         if ($should_add_plugin && !in_array($plugin_path, $required_plugins)) {
                             $required_plugins[] = $plugin_path;
-                            error_log('TCWP: Added shortcode-dependent plugin: ' . $plugin_path . ' for shortcode: [' . $shortcode . ']');
                         }
                     }
                 }
@@ -2535,7 +2498,6 @@ class TCWP_Manual_Config {
                     $shared_segments = array_intersect($url_segments, $pattern_segments);
                     if (count($shared_segments) >= 2) {
                         $required_plugins = array_merge($required_plugins, $plugins);
-                        error_log('TCWP: Aggressive fallback match: ' . $pattern . ' (shared segments: ' . implode(', ', $shared_segments) . ')');
                     }
                 }
             }
@@ -2546,9 +2508,7 @@ class TCWP_Manual_Config {
         $all_plugins = array_merge($required_plugins, $sitewide_plugins);
         $final_plugins = array_unique($all_plugins);
         
-        error_log('TCWP: Final plugins for URL ' . $url . ': ' . print_r($final_plugins, true));
         if (!empty($sitewide_plugins)) {
-            error_log('TCWP: Sitewide plugins included: ' . print_r($sitewide_plugins, true));
         }
         
         return $final_plugins;
@@ -2566,7 +2526,6 @@ class TCWP_Manual_Config {
         $clean_path = trim($path, '/');
         $path_segments = explode('/', $clean_path);
         
-        error_log('TCWP: Checking taxonomy archive for path: ' . $path . ' (segments: ' . implode(', ', $path_segments) . ')');
         
         // Get all registered taxonomies to check against
         $taxonomies = get_taxonomies(array('public' => true), 'objects');
@@ -2577,7 +2536,6 @@ class TCWP_Manual_Config {
             // 1. Check if URL matches taxonomy name directly
             if ($clean_path === $taxonomy_name) {
                 $potential_matches[] = $taxonomy_name;
-                error_log('TCWP: Direct taxonomy name match: ' . $taxonomy_name);
             }
             
             // 2. Check if URL matches taxonomy rewrite slug
@@ -2585,13 +2543,11 @@ class TCWP_Manual_Config {
                 $rewrite_slug = $taxonomy_obj->rewrite['slug'];
                 if ($clean_path === $rewrite_slug) {
                     $potential_matches[] = $rewrite_slug;
-                    error_log('TCWP: Taxonomy rewrite slug match: ' . $rewrite_slug);
                 }
                 
                 // Also check if path ends with the rewrite slug (for nested structures)
                 if (in_array($rewrite_slug, $path_segments)) {
                     $potential_matches[] = $rewrite_slug;
-                    error_log('TCWP: Taxonomy rewrite slug segment match: ' . $rewrite_slug);
                 }
             }
             
@@ -2604,7 +2560,6 @@ class TCWP_Manual_Config {
                     $archive_slug = is_string($post_type_obj->has_archive) ? $post_type_obj->has_archive : $post_type;
                     if ($clean_path === $archive_slug || in_array($archive_slug, $path_segments)) {
                         $potential_matches[] = $archive_slug;
-                        error_log('TCWP: Associated post type archive match: ' . $archive_slug . ' for taxonomy: ' . $taxonomy_name);
                     }
                 }
             }
@@ -2614,7 +2569,6 @@ class TCWP_Manual_Config {
                 // Try exact pattern match
                 if (isset($manual_config[$match])) {
                     $required_plugins = array_merge($required_plugins, $manual_config[$match]);
-                    error_log('TCWP: Found taxonomy archive config for pattern: ' . $match);
                 }
                 
                 // Try pattern with leading/trailing slashes
@@ -2622,7 +2576,6 @@ class TCWP_Manual_Config {
                 foreach ($slash_patterns as $slash_pattern) {
                     if (isset($manual_config[$slash_pattern])) {
                         $required_plugins = array_merge($required_plugins, $manual_config[$slash_pattern]);
-                        error_log('TCWP: Found taxonomy archive config for slash pattern: ' . $slash_pattern);
                     }
                 }
             }
@@ -2637,7 +2590,6 @@ class TCWP_Manual_Config {
                 // Additional check: make sure this isn't a specific post/page
                 if (count($path_segments) <= 2) { // Archive pages typically have 1-2 segments
                     $required_plugins = array_merge($required_plugins, $plugins);
-                    error_log('TCWP: Found archive pattern match: ' . $pattern . ' for URL: ' . $url);
                 }
             }
         }
@@ -2714,7 +2666,6 @@ class TCWP_Manual_Config {
         }
         
         if ($current_taxonomy) {
-            error_log('TCWP: Detected taxonomy: ' . $current_taxonomy . ', term: ' . ($current_term ?: 'archive'));
             
             // 1. First, apply taxonomy archive settings (parent settings)
             $taxonomy_archive_patterns = array();
@@ -2725,7 +2676,6 @@ class TCWP_Manual_Config {
                 if ($pattern === $current_taxonomy) {
                     $required_plugins = array_merge($required_plugins, $plugins);
                     $taxonomy_archive_patterns[] = $pattern;
-                    error_log('TCWP: Applied taxonomy archive pattern: ' . $pattern);
                 }
                 
                 // Check for patterns containing the taxonomy name
@@ -2735,7 +2685,6 @@ class TCWP_Manual_Config {
                     if (in_array($current_taxonomy, $pattern_segments)) {
                         $required_plugins = array_merge($required_plugins, $plugins);
                         $taxonomy_archive_patterns[] = $pattern;
-                        error_log('TCWP: Applied taxonomy pattern: ' . $pattern);
                     }
                 }
             }
@@ -2746,13 +2695,11 @@ class TCWP_Manual_Config {
                     // Look for patterns that include both taxonomy and term
                     if (strpos($pattern, $current_taxonomy) !== false && strpos($pattern, $current_term) !== false) {
                         $required_plugins = array_merge($required_plugins, $plugins);
-                        error_log('TCWP: Applied specific term pattern: ' . $pattern);
                     }
                     
                     // Also check for term-specific patterns
                     if (strpos($pattern, $current_term) !== false) {
                         $required_plugins = array_merge($required_plugins, $plugins);
-                        error_log('TCWP: Applied term-specific pattern: ' . $pattern);
                     }
                 }
             }
@@ -2771,7 +2718,6 @@ class TCWP_Manual_Config {
         $parsed_url = parse_url($url);
         $path = $parsed_url['path'] ?? '/';
         
-        error_log('TCWP: Checking taxonomy inheritance for URL: ' . $url);
         
         // Try to get the post ID from the URL
         $post_id = null;
@@ -2780,7 +2726,6 @@ class TCWP_Manual_Config {
         // Only use url_to_postid if WordPress is fully loaded and rewrite rules are available
         if (function_exists('url_to_postid') && did_action('wp_loaded') && !empty($GLOBALS['wp_rewrite'])) {
             $post_id = url_to_postid($url);
-            error_log('TCWP: url_to_postid returned: ' . $post_id);
         }
         
         // Method 2: If that fails, try to get the queried object (works on actual page requests)
@@ -2789,7 +2734,6 @@ class TCWP_Manual_Config {
             $queried_id = get_queried_object_id();
             if ($queried_id && get_post($queried_id)) {
                 $post_id = $queried_id;
-                error_log('TCWP: get_queried_object_id returned: ' . $post_id);
             }
         }
         
@@ -2805,7 +2749,6 @@ class TCWP_Manual_Config {
                         $test_post = get_post((int)$segment);
                         if ($test_post) {
                             $post_id = $test_post->ID;
-                            error_log('TCWP: Found post by numeric ID: ' . $post_id);
                             break;
                         }
                     }
@@ -2816,7 +2759,6 @@ class TCWP_Manual_Config {
                         $post = get_page_by_path($segment, OBJECT, $post_type);
                         if ($post) {
                             $post_id = $post->ID;
-                            error_log('TCWP: Found post by slug in post type ' . $post_type . ': ' . $post_id);
                             break 2;
                         }
                     }
@@ -2827,7 +2769,6 @@ class TCWP_Manual_Config {
         // If we found a post, check its taxonomies
         if ($post_id) {
             $post = get_post($post_id);
-            error_log('TCWP: Found post: ' . $post->post_title . ' (ID: ' . $post_id . ')');
             
             // Get all taxonomies for this post
             $post_taxonomies = get_object_taxonomies($post->post_type, 'objects');
@@ -2837,10 +2778,8 @@ class TCWP_Manual_Config {
                 $terms = get_the_terms($post_id, $taxonomy_name);
                 
                 if (!is_wp_error($terms) && !empty($terms)) {
-                    error_log('TCWP: Post has ' . count($terms) . ' terms in taxonomy ' . $taxonomy_name);
                     
                     foreach ($terms as $term) {
-                        error_log('TCWP: Checking term: ' . $term->name . ' (slug: ' . $term->slug . ')');
                         
                         // Build potential patterns for this term
                         $potential_patterns = array();
@@ -2870,7 +2809,6 @@ class TCWP_Manual_Config {
                         foreach ($potential_patterns as $pattern) {
                             if (isset($manual_config[$pattern]) && !empty($manual_config[$pattern])) {
                                 $required_plugins = array_merge($required_plugins, $manual_config[$pattern]);
-                                error_log('TCWP: Found taxonomy inheritance match - pattern: ' . $pattern . ' for term: ' . $term->name);
                             }
                         }
                         
@@ -2890,7 +2828,6 @@ class TCWP_Manual_Config {
                             foreach ($asset_patterns as $pattern) {
                                 if (isset($manual_config[$pattern]) && !empty($manual_config[$pattern])) {
                                     $required_plugins = array_merge($required_plugins, $manual_config[$pattern]);
-                                    error_log('TCWP: Found asset-type inheritance match - pattern: ' . $pattern . ' for term: ' . $term->name);
                                 }
                             }
                         }
@@ -2898,7 +2835,6 @@ class TCWP_Manual_Config {
                 }
             }
         } else {
-            error_log('TCWP: Could not determine post ID for URL: ' . $url);
         }
         
         return array_unique($required_plugins);
@@ -3010,9 +2946,6 @@ class TCWP_Manual_Config {
         
         // Debug: Log the manual config data
         if (WP_DEBUG) {
-            error_log('TCWP Export Debug: Manual config count: ' . count($manual_config));
-            error_log('TCWP Export Debug: Manual config keys: ' . implode(', ', array_keys($manual_config)));
-            error_log('TCWP Export Debug: Site items count: ' . count($site_items));
         }
         
         // Create XML document
@@ -3081,7 +3014,6 @@ class TCWP_Manual_Config {
             
             // Debug: Log each config item being processed
             if (WP_DEBUG) {
-                error_log("TCWP Export Debug: Processing pattern '$pattern' with " . count($plugins) . " plugins, type: " . $config_item['type']);
             }
             
             // Categorize by type
@@ -3119,7 +3051,6 @@ class TCWP_Manual_Config {
         // Debug: Log the categorized config counts
         if (WP_DEBUG) {
             foreach ($config_by_type as $type => $configs) {
-                error_log("TCWP Export Debug: $type has " . count($configs) . " items");
             }
         }
         
