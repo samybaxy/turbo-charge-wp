@@ -3,7 +3,7 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.3
+ * Version: 2.3.4
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.3');
+define('TCWP_VERSION', '2.3.4');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -41,6 +41,10 @@ if (!defined('TCWP_PERFORMANCE_MODE')) {
  * 
  * Complete redesign focused on maximum TTFB improvement with zero overhead.
  * Uses aggressive early plugin filtering and intelligent defaults.
+ * 
+ * IMPORTANT: Plugin filtering is ONLY applied on true frontend requests.
+ * All backend operations (admin, AJAX, REST API, feeds, cron) are excluded
+ * to ensure compatibility with plugins like CartFlows that need full access.
  */
 class TurboChargeWP {
     
@@ -237,8 +241,8 @@ class TurboChargeWP {
     public function filter_active_plugins($plugins) {
         // Debug logging
         
-        // Only filter on frontend
-        if (is_admin() || $this->is_critical_operation()) {
+        // Only filter on true frontend requests
+        if ($this->should_skip_filtering()) {
             return $plugins;
         }
         
@@ -249,8 +253,8 @@ class TurboChargeWP {
      * Filter active sitewide plugins for multisite
      */
     public function filter_active_sitewide_plugins($plugins) {
-        // Only filter on frontend
-        if (is_admin() || $this->is_critical_operation()) {
+        // Only filter on true frontend requests
+        if ($this->should_skip_filtering()) {
             return $plugins;
         }
         
@@ -291,14 +295,9 @@ class TurboChargeWP {
             return $value;
         }
         
-        // CRITICAL: Never filter in admin - full backend functionality preserved
-        if (is_admin()) {
-            return false; // Let WordPress load all plugins in admin
-        }
-        
-        // Don't filter during critical operations
-        if ($this->is_critical_operation()) {
-            return false;
+        // CRITICAL: Skip filtering for all backend operations
+        if ($this->should_skip_filtering()) {
+            return false; // Let WordPress load all plugins
         }
         
         $recursion_guard = true;
@@ -406,8 +405,8 @@ class TurboChargeWP {
         // CRITICAL: Also check if we're in a frontend simulation context (testing)
         $is_frontend_simulation = apply_filters('tcwp_is_frontend_simulation', false);
         
-        // For admin contexts (except performance tests and simulations), don't filter
-        if (is_admin() && !$is_performance_test && !$is_frontend_simulation) {
+        // For backend contexts (except performance tests and simulations), don't filter
+        if ($this->should_skip_filtering() && !$is_performance_test && !$is_frontend_simulation) {
             return $plugins;
         }
         
@@ -416,8 +415,8 @@ class TurboChargeWP {
             return $filtered_cache;
         }
         
-        // Prevent infinite loops during critical operations
-        if ($filtering_active || (!$is_performance_test && $this->is_critical_operation())) {
+        // Prevent infinite loops
+        if ($filtering_active) {
             return $plugins;
         }
         
@@ -747,11 +746,10 @@ class TurboChargeWP {
     }
     
     /**
-     * Check for critical operations - FIXED: Allow filtering during cron and REST
+     * Check for critical operations
      */
     private function is_critical_operation() {
-        // CRITICAL FIX: Only block filtering for truly critical operations
-        // WordPress cron and REST requests should still allow plugin filtering
+        // Only block filtering for truly critical operations
         $critical_reasons = array();
         
         if (defined('WP_INSTALLING') && WP_INSTALLING) {
@@ -761,17 +759,69 @@ class TurboChargeWP {
             $critical_reasons[] = 'WP_CLI';
         }
         
-        // REMOVED: DOING_CRON - cron jobs should still allow plugin filtering
-        // REMOVED: REST_REQUEST - REST API should still allow plugin filtering
+        return !empty($critical_reasons);
+    }
+    
+    /**
+     * Determine if plugin filtering should be skipped
+     * This centralizes all backend/non-frontend detection logic
+     */
+    private function should_skip_filtering() {
+        $skip_reason = null;
         
-        $is_critical = !empty($critical_reasons);
-        
-        if ($is_critical && WP_DEBUG) {
-        } elseif (WP_DEBUG && (defined('DOING_CRON') && DOING_CRON)) {
-        } elseif (WP_DEBUG && (defined('REST_REQUEST') && REST_REQUEST)) {
+        // Skip filtering in admin area
+        if (is_admin()) {
+            $skip_reason = 'admin_area';
+        }
+        // Skip filtering during AJAX requests (backend operations)
+        elseif (defined('DOING_AJAX') && DOING_AJAX) {
+            $skip_reason = 'ajax_request';
+        }
+        // Skip filtering during REST API requests (used by many plugins for data)
+        elseif (defined('REST_REQUEST') && REST_REQUEST) {
+            $skip_reason = 'rest_api';
+        }
+        // Skip filtering during cron jobs (background tasks)
+        elseif (defined('DOING_CRON') && DOING_CRON) {
+            $skip_reason = 'cron_job';
+        }
+        // Skip filtering during feed generation (RSS, etc)
+        elseif (is_feed()) {
+            $skip_reason = 'feed_request';
+        }
+        // Skip filtering for XML-RPC requests
+        elseif (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST) {
+            $skip_reason = 'xmlrpc_request';
+        }
+        // Skip filtering during critical operations
+        elseif ($this->is_critical_operation()) {
+            $skip_reason = 'critical_operation';
+        }
+        else {
+            // Check for specific backend-related URLs that might not be caught above
+            $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+            $backend_patterns = array(
+                '/wp-json/'       => 'rest_api_url',
+                '/feed/'          => 'feed_url',
+                '/wp-cron.php'    => 'cron_url',
+                'admin-ajax.php'  => 'ajax_url',
+            );
+            
+            foreach ($backend_patterns as $pattern => $reason) {
+                if (strpos($request_uri, $pattern) !== false) {
+                    $skip_reason = $reason;
+                    break;
+                }
+            }
         }
         
-        return $is_critical;
+        // Log why filtering was skipped (only in debug mode)
+        if ($skip_reason && (WP_DEBUG || !empty(self::$options['debug_mode']))) {
+            error_log('TCWP: Skipping plugin filtering - reason: ' . $skip_reason . ' (URL: ' . ($_SERVER['REQUEST_URI'] ?? 'unknown') . ')');
+        }
+        
+        // Only filter on true frontend requests
+        return $skip_reason !== null;
     }
     
     /**
