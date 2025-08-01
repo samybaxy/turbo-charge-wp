@@ -276,6 +276,32 @@ turbo-charge-wp/
 
 **This update enables seamless configuration management across multiple environments, making it easy to deploy tested plugin configurations from staging to production.**
 
+### 2.3.4 (2025-08-01)
+**Critical Fix: Backend Operations Compatibility**
+
+#### 🔧 Major Fix
+- **Fixed backend interference**: Resolved critical issue where plugin filtering was affecting backend operations including AJAX requests, REST API calls, and feed generation
+- **CartFlows compatibility**: Fixed issue where CartFlows and similar plugins couldn't fetch data or perform backend operations when Turbo Charge WP was active
+- **Enhanced backend detection**: Centralized and improved detection of all backend operations to ensure they bypass plugin filtering
+
+#### 🚀 Improvements
+- **Comprehensive backend exclusion**: Now properly excludes:
+  - Admin area operations
+  - AJAX requests (admin-ajax.php)
+  - REST API calls (/wp-json/)
+  - Cron jobs (wp-cron.php)
+  - Feed generation (/feed/)
+  - XML-RPC requests
+- **Debug logging**: Added detailed logging to track when and why plugin filtering is skipped
+- **Consistent behavior**: Aligned MU plugin loader with main plugin for consistent backend handling
+
+#### 📋 Technical Details
+- Introduced `should_skip_filtering()` method to centralize all backend detection logic
+- Added URL pattern matching for backend endpoints that might not be caught by WordPress constants
+- Enhanced logging in debug mode to help diagnose filtering behavior
+
+**This critical update ensures Turbo Charge WP only optimizes true frontend requests, leaving all backend operations untouched for maximum compatibility.**
+
 ### 2.3.1 (2025-07-22)
 **Critical Bug Fix: Taxonomy Filtering & Frontend Plugin Loading**
 
