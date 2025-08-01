@@ -37,8 +37,26 @@ function tcwp_mu_early_init() {
 add_filter('pre_option_active_plugins', 'tcwp_mu_filter_plugins', 1);
 
 function tcwp_mu_filter_plugins($value) {
-    // Only filter on frontend
-    if (is_admin() || (defined('DOING_AJAX') && DOING_AJAX) || (defined('DOING_CRON') && DOING_CRON)) {
+    // Skip filtering for all backend operations
+    if (is_admin() || 
+        (defined('DOING_AJAX') && DOING_AJAX) || 
+        (defined('DOING_CRON') && DOING_CRON) ||
+        (defined('REST_REQUEST') && REST_REQUEST) ||
+        (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST)) {
+        return $value;
+    }
+    
+    // Check for backend-related URLs
+    $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+    $backend_patterns = array('/wp-json/', '/feed/', '/wp-cron.php', 'admin-ajax.php');
+    foreach ($backend_patterns as $pattern) {
+        if (strpos($request_uri, $pattern) !== false) {
+            return $value;
+        }
+    }
+    
+    // Check if this is a feed request
+    if (function_exists('is_feed') && is_feed()) {
         return $value;
     }
     
