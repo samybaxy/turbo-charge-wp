@@ -76,7 +76,7 @@ Tests include:
 ## Requirements
 
 - WordPress 6.0 or higher
-- PHP 7.4 or higher
+- PHP 8.2 or higher
 - Memory limit of at least 128MB recommended
 
 ## Configuration
@@ -217,6 +217,14 @@ turbo-charge-wp/
 5. Submit a pull request
 
 ## Changelog
+
+### 2.3.5 (2025-08-02)
+**Compatibility Update: PHP Version Requirement**
+
+#### 🔧 Compatibility Fix
+- **Downgraded PHP requirement**: Changed minimum PHP version from 8.4 to 8.2 for better server compatibility
+- **Remote server alignment**: Updated to match common hosting environment PHP versions
+- **No functionality changes**: Pure compatibility update with no feature modifications
 
 ### 2.3.3 (2025-07-29)
 **New Feature: Sitewide Plugins Configuration**

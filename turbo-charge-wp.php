@@ -3,7 +3,7 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.4
+ * Version: 2.3.5
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
@@ -12,7 +12,7 @@
  * Domain Path: /languages
  * Requires at least: 6.4
  * Tested up to: 6.7
- * Requires PHP: 8.4
+ * Requires PHP: 8.2
  * Network: false
  *
  * @package TurboChargeWP
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.4');
+define('TCWP_VERSION', '2.3.5');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
