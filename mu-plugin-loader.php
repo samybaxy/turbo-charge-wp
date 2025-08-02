@@ -37,13 +37,50 @@ function tcwp_mu_early_init() {
 add_filter('pre_option_active_plugins', 'tcwp_mu_filter_plugins', 1);
 
 function tcwp_mu_filter_plugins($value) {
-    // Skip filtering for all backend operations
+    // Skip filtering for backend operations
     if (is_admin() || 
-        (defined('DOING_AJAX') && DOING_AJAX) || 
         (defined('DOING_CRON') && DOING_CRON) ||
         (defined('REST_REQUEST') && REST_REQUEST) ||
         (defined('XMLRPC_REQUEST') && XMLRPC_REQUEST)) {
         return $value;
+    }
+    
+    // Handle AJAX requests more selectively
+    if (defined('DOING_AJAX') && DOING_AJAX) {
+        $ajax_action = $_REQUEST['action'] ?? '';
+        
+        // List of frontend AJAX actions that should still be filtered
+        $frontend_ajax_actions = array(
+            'elementor_ajax',
+            'elementor_pro_forms_send_form',
+            'fluentform_submit',
+            'fluentform_ajax_submit',
+            'wpforms_submit',
+            'wpcf7-submit',
+        );
+        
+        // Check if this is a frontend AJAX action
+        $is_frontend_ajax = false;
+        foreach ($frontend_ajax_actions as $action_prefix) {
+            if (strpos($ajax_action, $action_prefix) === 0) {
+                $is_frontend_ajax = true;
+                break;
+            }
+        }
+        
+        // Also check referer to see if it's from frontend
+        $referer = $_SERVER['HTTP_REFERER'] ?? '';
+        if (!$is_frontend_ajax && !empty($referer)) {
+            // If referer doesn't contain wp-admin, it's likely frontend AJAX
+            if (strpos($referer, 'wp-admin') === false) {
+                $is_frontend_ajax = true;
+            }
+        }
+        
+        // Only skip filtering for true backend AJAX requests
+        if (!$is_frontend_ajax) {
+            return $value;
+        }
     }
     
     // Check for backend-related URLs
@@ -143,6 +180,10 @@ function tcwp_mu_filter_plugins($value) {
         'yoast-seo/wp-seo.php',
         'elementor/elementor.php',
         'elementor-pro/elementor-pro.php',
+        // Form plugins
+        'fluentform/fluentform.php',
+        'fluent-forms/fluent-forms.php',
+        'wp-fluent-forms/wp-fluent-forms.php',
     );
     
     // Start with essential plugins

@@ -218,6 +218,32 @@ turbo-charge-wp/
 
 ## Changelog
 
+### 2.3.6 (2025-08-02)
+**Critical Fix: Elementor Forms Widget Compatibility**
+
+#### 🔧 Major Fixes
+- **Fixed Elementor widget loading**: Resolved issue where Elementor form widgets (including Fluent Forms) weren't displaying even with all plugins selected in manual configuration
+- **Enhanced AJAX handling**: Implemented selective AJAX filtering to allow frontend form submissions and widget loading while maintaining backend protection
+- **Improved Elementor detection**: Now checks for Elementor data content, not just edit mode, ensuring widgets load properly on published pages
+
+#### 🚀 Improvements
+- **Better form plugin support**: Added comprehensive detection for Fluent Forms, WPForms, and Contact Form 7 widgets within Elementor
+- **Frontend AJAX whitelist**: Added specific handling for form submission AJAX actions:
+  - Elementor AJAX operations
+  - Fluent Forms submissions
+  - WPForms submissions
+  - Contact Form 7 submissions
+- **Enhanced widget detection**: Scans Elementor data for form widget usage and automatically loads required plugins
+- **Essential plugins update**: Added Fluent Forms variants to essential plugins list
+
+#### 📋 Technical Details
+- Modified `should_skip_filtering()` to differentiate between frontend and backend AJAX requests
+- Enhanced Elementor content detection to check `_elementor_data` meta field
+- Added form widget detection within Elementor data structure
+- Updated both main plugin and MU loader with consistent AJAX handling
+
+**This update ensures Elementor form widgets work correctly when Turbo Charge WP is active, even in manual configuration mode.**
+
 ### 2.3.5 (2025-08-02)
 **Compatibility Update: PHP Version Requirement**
 

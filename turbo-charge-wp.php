@@ -3,7 +3,7 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.5
+ * Version: 2.3.6
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.5');
+define('TCWP_VERSION', '2.3.6');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -74,6 +74,10 @@ class TurboChargeWP {
         'wp-super-cache/wp-cache.php',
         // Essential WordPress functionality
         'akismet/akismet.php',
+        // Form plugins - often used site-wide
+        'fluentform/fluentform.php',
+        'fluent-forms/fluent-forms.php',
+        'wp-fluent-forms/wp-fluent-forms.php',
     );
     
     /**
@@ -608,18 +612,82 @@ class TurboChargeWP {
                 $required_plugins[] = 'wpforms-lite/wpforms.php';
             }
             
+            // Fluent Forms shortcode detection
+            if (strpos($content, '[fluentform') !== false || 
+                strpos($content, '[fluent_form') !== false ||
+                strpos($content, '[wpfluent') !== false) {
+                $fluent_plugins = array(
+                    'fluentform/fluentform.php',
+                    'fluent-forms/fluent-forms.php',
+                    'wp-fluent-forms/wp-fluent-forms.php'
+                );
+                foreach ($fluent_plugins as $fluent_plugin) {
+                    if (in_array($fluent_plugin, $available_plugins)) {
+                        $required_plugins[] = $fluent_plugin;
+                    }
+                }
+            }
+            
             // ENHANCED: PDF viewer shortcode detection
             if (strpos($content, '[pdf_view') !== false && in_array('code-snippets/code-snippets.php', $available_plugins)) {
                 $required_plugins[] = 'code-snippets/code-snippets.php';
             }
             
-            // Elementor check (optimized)
-            if ($post->ID && function_exists('get_post_meta') && get_post_meta($post->ID, '_elementor_edit_mode', true) === 'builder') {
-                if (in_array('elementor/elementor.php', $available_plugins)) {
-                    $required_plugins[] = 'elementor/elementor.php';
-                }
-                if (in_array('elementor-pro/elementor-pro.php', $available_plugins)) {
-                    $required_plugins[] = 'elementor-pro/elementor-pro.php';
+            // Enhanced Elementor check - check for any Elementor content, not just edit mode
+            if ($post->ID && function_exists('get_post_meta')) {
+                $elementor_data = get_post_meta($post->ID, '_elementor_data', true);
+                $elementor_edit_mode = get_post_meta($post->ID, '_elementor_edit_mode', true);
+                
+                // If page has Elementor data or is in builder mode
+                if (!empty($elementor_data) || $elementor_edit_mode === 'builder') {
+                    if (in_array('elementor/elementor.php', $available_plugins)) {
+                        $required_plugins[] = 'elementor/elementor.php';
+                    }
+                    if (in_array('elementor-pro/elementor-pro.php', $available_plugins)) {
+                        $required_plugins[] = 'elementor-pro/elementor-pro.php';
+                    }
+                    
+                    // Check for form widgets in Elementor data
+                    if (!empty($elementor_data)) {
+                        // Fluent Forms widget detection
+                        if (strpos($elementor_data, 'fluent-forms') !== false || 
+                            strpos($elementor_data, 'fluentform') !== false ||
+                            strpos($elementor_data, 'wpfluent') !== false ||
+                            strpos($elementor_data, 'fluent_forms') !== false) {
+                            // Common Fluent Forms plugin slugs
+                            $fluent_plugins = array(
+                                'fluentform/fluentform.php',
+                                'fluent-forms/fluent-forms.php',
+                                'wp-fluent-forms/wp-fluent-forms.php'
+                            );
+                            foreach ($fluent_plugins as $fluent_plugin) {
+                                if (in_array($fluent_plugin, $available_plugins)) {
+                                    $required_plugins[] = $fluent_plugin;
+                                }
+                            }
+                        }
+                        
+                        // Contact Form 7 widget detection
+                        if (strpos($elementor_data, 'contact-form-7') !== false ||
+                            strpos($elementor_data, 'cf7') !== false) {
+                            if (in_array('contact-form-7/wp-contact-form-7.php', $available_plugins)) {
+                                $required_plugins[] = 'contact-form-7/wp-contact-form-7.php';
+                            }
+                        }
+                        
+                        // WPForms widget detection
+                        if (strpos($elementor_data, 'wpforms') !== false) {
+                            $wpforms_plugins = array(
+                                'wpforms-lite/wpforms.php',
+                                'wpforms/wpforms.php'
+                            );
+                            foreach ($wpforms_plugins as $wpforms_plugin) {
+                                if (in_array($wpforms_plugin, $available_plugins)) {
+                                    $required_plugins[] = $wpforms_plugin;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -773,9 +841,44 @@ class TurboChargeWP {
         if (is_admin()) {
             $skip_reason = 'admin_area';
         }
-        // Skip filtering during AJAX requests (backend operations)
+        // Skip filtering during AJAX requests - but be selective
         elseif (defined('DOING_AJAX') && DOING_AJAX) {
-            $skip_reason = 'ajax_request';
+            // Allow filtering for frontend AJAX requests like Elementor widgets
+            $ajax_action = $_REQUEST['action'] ?? '';
+            
+            // List of frontend AJAX actions that should still be filtered
+            $frontend_ajax_actions = array(
+                'elementor_ajax',
+                'elementor_pro_forms_send_form',
+                'fluentform_submit',
+                'fluentform_ajax_submit',
+                'wpforms_submit',
+                'wpcf7-submit',
+            );
+            
+            // Check if this is a frontend AJAX action
+            $is_frontend_ajax = false;
+            foreach ($frontend_ajax_actions as $action_prefix) {
+                if (strpos($ajax_action, $action_prefix) === 0) {
+                    $is_frontend_ajax = true;
+                    break;
+                }
+            }
+            
+            // Also check referer to see if it's from frontend
+            $referer = $_SERVER['HTTP_REFERER'] ?? '';
+            if (!$is_frontend_ajax && !empty($referer)) {
+                $admin_url = admin_url();
+                // If referer is not from admin area, it's likely frontend AJAX
+                if (strpos($referer, $admin_url) === false) {
+                    $is_frontend_ajax = true;
+                }
+            }
+            
+            // Only skip filtering for true backend AJAX requests
+            if (!$is_frontend_ajax) {
+                $skip_reason = 'backend_ajax_request';
+            }
         }
         // Skip filtering during REST API requests (used by many plugins for data)
         elseif (defined('REST_REQUEST') && REST_REQUEST) {
