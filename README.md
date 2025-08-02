@@ -218,6 +218,26 @@ turbo-charge-wp/
 
 ## Changelog
 
+### 2.3.7 (2025-08-02)
+**Fix: Sitewide Plugins Display Issue**
+
+#### 🔧 Bug Fix
+- **Fixed sitewide plugins tab**: Resolved issue where sitewide plugins tab only showed plugins selected for homepage pattern
+- **Unfiltered plugin list**: Implemented direct database query to get all active plugins without Turbo Charge WP filtering
+- **Backend display fix**: Ensured admin interface shows complete list of available plugins for sitewide selection
+
+#### 🚀 Improvements
+- **DRY principle applied**: Created reusable `get_unfiltered_active_plugins()` method for consistent plugin retrieval
+- **Maintained precedence logic**: Sitewide plugins continue to take precedence over page-specific configurations
+- **Database direct access**: Bypasses all filtering to ensure accurate plugin list in admin area
+
+#### 📋 Technical Details
+- Added `get_unfiltered_active_plugins()` method to retrieve plugins directly from database
+- Temporarily removes Turbo Charge WP filters when fetching plugin list for admin display
+- Ensures sitewide plugin selection interface shows all available plugins, not filtered subset
+
+**This fix ensures administrators can select from ALL active plugins when configuring sitewide plugins, not just those filtered for the homepage.**
+
 ### 2.3.6 (2025-08-02)
 **Critical Fix: Elementor Forms Widget Compatibility**
 

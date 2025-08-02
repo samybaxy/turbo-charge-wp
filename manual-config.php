@@ -440,7 +440,8 @@ class TCWP_Manual_Config {
         wp_enqueue_style('dashicons');
         
         $manual_config = get_option('tcwp_manual_config', array());
-        $all_plugins = get_option('active_plugins', array());
+        // Use unfiltered plugins for admin display (DRY principle - single source of truth)
+        $all_plugins = self::get_unfiltered_active_plugins();
         $all_site_items = self::get_all_site_items();
         
         // Get current tab and preserve filter tab
@@ -2149,6 +2150,35 @@ class TCWP_Manual_Config {
     private static function get_plugin_name($plugin_file) {
         $plugin_data = get_file_data(WP_PLUGIN_DIR . '/' . $plugin_file, array('Name' => 'Plugin Name'));
         return !empty($plugin_data['Name']) ? $plugin_data['Name'] : basename($plugin_file, '.php');
+    }
+    
+    /**
+     * Get all active plugins without any filtering (DRY principle)
+     * This ensures we get the actual list from the database, not filtered by Turbo Charge WP
+     */
+    private static function get_unfiltered_active_plugins() {
+        global $wpdb;
+        
+        // Method 1: Try to remove filters if TurboChargeWP is available
+        if (class_exists('TurboChargeWP') && method_exists('TurboChargeWP', 'get_instance')) {
+            $instance = TurboChargeWP::get_instance();
+            if ($instance) {
+                remove_filter('option_active_plugins', array($instance, 'filter_active_plugins'), 1);
+                remove_filter('pre_option_active_plugins', array($instance, 'pre_ultra_filter_plugins'), 1);
+            }
+        }
+        
+        // Method 2: Get active plugins directly from database to bypass any filtering
+        $active_plugins = $wpdb->get_var("SELECT option_value FROM {$wpdb->options} WHERE option_name = 'active_plugins'");
+        $active_plugins = maybe_unserialize($active_plugins);
+        
+        // Re-add our filters if we removed them
+        if (isset($instance) && $instance) {
+            add_filter('option_active_plugins', array($instance, 'filter_active_plugins'), 1);
+            add_filter('pre_option_active_plugins', array($instance, 'pre_ultra_filter_plugins'), 1);
+        }
+        
+        return is_array($active_plugins) ? $active_plugins : array();
     }
     
     /**
