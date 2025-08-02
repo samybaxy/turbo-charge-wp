@@ -3,7 +3,7 @@
  * Plugin Name: Turbo Charge WP
  * Plugin URI: https://github.com/turbo-charge-wp/turbo-charge-wp
  * Description: Ultra-performance WordPress optimization - dramatically reduces Time To First Byte (TTFB) by intelligently loading only required plugins per page. Zero-overhead design optimized for maximum speed.
- * Version: 2.3.7
+ * Version: 2.3.8
  * Author: Turbo Charge WP Team
  * Author URI: https://turbo-charge-wp.com
  * License: GPL v2 or later
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TCWP_VERSION', '2.3.7');
+define('TCWP_VERSION', '2.3.8');
 define('TCWP_PLUGIN_FILE', __FILE__);
 define('TCWP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TCWP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -243,14 +243,24 @@ class TurboChargeWP {
      * Filter active plugins option directly
      */
     public function filter_active_plugins($plugins) {
-        // Debug logging
+        // CRITICAL: Ensure we have a valid plugin array
+        if (!is_array($plugins) || empty($plugins)) {
+            return $plugins;
+        }
         
         // Only filter on true frontend requests
         if ($this->should_skip_filtering()) {
             return $plugins;
         }
         
-        return $this->ultra_filter_plugins($plugins);
+        $filtered = $this->ultra_filter_plugins($plugins);
+        
+        // CRITICAL: Never return empty array to prevent plugin deactivation
+        if (empty($filtered) || !is_array($filtered)) {
+            return $plugins;
+        }
+        
+        return $filtered;
     }
     
     /**
@@ -319,6 +329,11 @@ class TurboChargeWP {
             // Apply our filtering logic (frontend-only)
             $filtered_plugins = $this->ultra_filter_plugins($active_plugins);
             
+            // CRITICAL: Never return empty array to prevent plugin deactivation
+            if (empty($filtered_plugins) || !is_array($filtered_plugins)) {
+                return false; // Let WordPress handle it normally
+            }
+            
             return $filtered_plugins;
             
         } catch (Exception $e) {
@@ -355,6 +370,11 @@ class TurboChargeWP {
                 $sitewide_plugins = array_intersect($sitewide_plugins, $plugins);
                 
                 $filtered_plugins = array_unique(array_merge($manual_plugins, $security_plugins, $sitewide_plugins));
+                
+                // CRITICAL: Never return empty plugin list
+                if (empty($filtered_plugins)) {
+                    return $plugins;
+                }
                 
                 // Store debug info for manual override mode
                 if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
@@ -464,8 +484,25 @@ class TurboChargeWP {
             // Ensure all required plugins exist in active list
             $filtered_plugins = array_intersect($required_plugins, $plugins);
             
-            // If too few plugins, add some basic ones to prevent breaking
-            if (count($filtered_plugins) < 5) {
+            // CRITICAL FIX: Never return empty plugin list to prevent WordPress from deactivating plugins
+            if (empty($filtered_plugins)) {
+                // If no plugins match, return at least our own plugin and essential security plugins
+                $critical_plugins = array(
+                    'turbo-charge-wp/turbo-charge-wp.php',
+                    'wordfence/wordfence.php',
+                    'better-wp-security/better-wp-security.php',
+                    'akismet/akismet.php'
+                );
+                $filtered_plugins = array_intersect($critical_plugins, $plugins);
+                
+                // If still empty, return original plugin list to prevent deactivation
+                if (empty($filtered_plugins)) {
+                    return $plugins;
+                }
+            }
+            
+            // Additional safety: ensure minimum plugin count
+            if (count($filtered_plugins) < 3) {
                 $basic_plugins = array(
                     'woocommerce/woocommerce.php',
                     'elementor/elementor.php',
@@ -477,6 +514,9 @@ class TurboChargeWP {
                 foreach ($basic_plugins as $basic_plugin) {
                     if (in_array($basic_plugin, $plugins) && !in_array($basic_plugin, $filtered_plugins)) {
                         $filtered_plugins[] = $basic_plugin;
+                        if (count($filtered_plugins) >= 5) {
+                            break;
+                        }
                     }
                 }
             }

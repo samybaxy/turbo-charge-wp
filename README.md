@@ -218,6 +218,29 @@ turbo-charge-wp/
 
 ## Changelog
 
+### 2.3.8 (2025-08-02)
+**CRITICAL FIX: Prevent Plugin Deactivation**
+
+#### 🚨 Critical Issue Fixed
+- **Prevented plugin deactivation**: Fixed critical issue where aggressive filtering could return empty plugin list, causing WordPress to deactivate plugins
+- **Empty array safeguards**: Added multiple safety checks to ensure filtered plugin list is never empty
+- **Failsafe mechanisms**: Implemented fallback logic to return original plugin list if filtering results in empty array
+
+#### 🔧 Safety Improvements
+- **Never return empty**: Added checks in `filter_active_plugins()` to prevent returning empty arrays
+- **Manual mode protection**: Ensured manual configuration never results in completely empty plugin list
+- **Minimum plugin count**: Maintains critical plugins (Turbo Charge WP, security plugins) even in aggressive filtering
+- **Pre-option filter safety**: Added safeguards to `pre_ultra_filter_plugins()` to prevent empty returns
+- **MU loader protection**: Updated MU plugin loader with same empty array protections
+
+#### 📋 Technical Details
+- Multiple validation points to ensure plugin array is never empty
+- Returns original unfiltered plugin list if filtering would result in no plugins
+- Maintains at least essential security plugins in all scenarios
+- Added defensive programming practices throughout filtering pipeline
+
+**This critical fix prevents the plugin from ever causing WordPress to deactivate plugins by ensuring the filtered plugin list is never empty.**
+
 ### 2.3.7 (2025-08-02)
 **Fix: Sitewide Plugins Display Issue**
 

@@ -214,6 +214,18 @@ function tcwp_mu_filter_plugins($value) {
     $filtered_plugins = array_unique($filtered_plugins);
     $filtered_plugins = array_intersect($filtered_plugins, $active_plugins);
     
+    // CRITICAL: Never return empty plugin list to prevent deactivation
+    if (empty($filtered_plugins)) {
+        // Return at least essential plugins
+        $critical_plugins = array('turbo-charge-wp/turbo-charge-wp.php');
+        $filtered_plugins = array_intersect($critical_plugins, $active_plugins);
+        
+        // If still empty, return false to let WordPress handle normally
+        if (empty($filtered_plugins)) {
+            return false;
+        }
+    }
+    
     // Log for debugging
     if (WP_DEBUG) {
     }
