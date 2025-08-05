@@ -97,9 +97,10 @@ class TurboChargeWP {
         'course' => 'tutor/tutor.php',
         'lesson' => 'tutor/tutor.php',
         'quiz' => 'tutor/tutor.php',
-        // Events
-        'event' => 'modern-events-calendar/modern-events-calendar.php',
-        'calendar' => 'modern-events-calendar/modern-events-calendar.php',
+        // Events - Multiple possible plugin paths
+        'event' => array('modern-events-calendar/modern-events-calendar.php', 'mec-events-calendar/mec-events-calendar.php'),
+        'calendar' => array('modern-events-calendar/modern-events-calendar.php', 'mec-events-calendar/mec-events-calendar.php'),
+        'events' => array('modern-events-calendar/modern-events-calendar.php', 'mec-events-calendar/mec-events-calendar.php'),
         // Music/Audio
         'music' => 'mp3-music-player-by-sonaar/sonaar-music.php',
         'audio' => 'mp3-music-player-by-sonaar/sonaar-music.php',
@@ -462,6 +463,12 @@ class TurboChargeWP {
             $manual_plugins = $this->get_manual_plugins($plugins);
             if (!empty($manual_plugins)) {
                 $required_plugins = array_unique(array_merge($required_plugins, $manual_plugins));
+                
+                // CRITICAL FIX: When manual plugins are configured, ensure they take priority
+                // This prevents automatic filtering from removing manually configured plugins
+                if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
+                    error_log('TCWP: Manual plugins configured for URL, adding ' . count($manual_plugins) . ' plugins');
+                }
             } else {
                 // Fall back to automatic detection
                 
@@ -571,8 +578,39 @@ class TurboChargeWP {
         $current_url = $_SERVER['REQUEST_URI'] ?? '/';
         $manual_plugins = TCWP_Manual_Config::get_manual_plugins_for_url($current_url);
         
+        // Debug logging for manual plugin loading
+        if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
+            error_log('TCWP Manual Config - URL: ' . $current_url);
+            error_log('TCWP Manual Config - Configured plugins: ' . implode(', ', $manual_plugins));
+            error_log('TCWP Manual Config - Available plugins: ' . implode(', ', $available_plugins));
+        }
+        
         // Filter to only include plugins that are actually available
-        return array_intersect($manual_plugins, $available_plugins);
+        $final_plugins = array_intersect($manual_plugins, $available_plugins);
+        
+        // Additional check: If MEC variants are configured, try to find the actual plugin
+        $mec_variants = array(
+            'modern-events-calendar/modern-events-calendar.php',
+            'mec-events-calendar/mec-events-calendar.php',
+            'modern-events-calendar-lite/modern-events-calendar-lite.php'
+        );
+        
+        // Check if any MEC variant is in manual config
+        foreach ($manual_plugins as $plugin) {
+            if (in_array($plugin, $mec_variants)) {
+                // Find which MEC variant is actually installed
+                foreach ($mec_variants as $mec_variant) {
+                    if (in_array($mec_variant, $available_plugins) && !in_array($mec_variant, $final_plugins)) {
+                        $final_plugins[] = $mec_variant;
+                        if (WP_DEBUG || !empty(self::$options['debug_mode'])) {
+                            error_log('TCWP: Added MEC variant: ' . $mec_variant);
+                        }
+                    }
+                }
+            }
+        }
+        
+        return $final_plugins;
     }
     
     /**
@@ -596,10 +634,17 @@ class TurboChargeWP {
         
         // Fallback to simple pattern matching
         if (empty($required_plugins)) {
-            foreach (self::$smart_patterns as $pattern => $plugin) {
-                if (strpos($current_url, $pattern) !== false && in_array($plugin, $available_plugins)) {
-                    $required_plugins[] = $plugin;
-                    // Continue checking other patterns to allow multiple plugins to be loaded
+            foreach (self::$smart_patterns as $pattern => $plugin_or_array) {
+                if (strpos($current_url, $pattern) !== false) {
+                    // Handle both single plugin and array of plugin variants
+                    $plugin_variants = is_array($plugin_or_array) ? $plugin_or_array : array($plugin_or_array);
+                    
+                    foreach ($plugin_variants as $plugin) {
+                        if (in_array($plugin, $available_plugins)) {
+                            $required_plugins[] = $plugin;
+                            break; // Only add the first matching variant
+                        }
+                    }
                 }
             }
             // Remove duplicates since WooCommerce patterns might match multiple times

@@ -2361,10 +2361,19 @@ class TCWP_Manual_Config {
         $path = $parsed_url['path'] ?? '/';
         
         // Debug logging
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('TCWP Manual Config - Checking URL: ' . $url);
+            error_log('TCWP Manual Config - Path: ' . $path);
+            error_log('TCWP Manual Config - Available patterns: ' . implode(', ', array_keys($manual_config)));
+        }
         
         // PRIORITY 1: Try exact URL path match first
         if (isset($manual_config[$path])) {
             $required_plugins = array_merge($required_plugins, $manual_config[$path]);
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('TCWP Manual Config - Exact match found for: ' . $path);
+                error_log('TCWP Manual Config - Loading plugins: ' . implode(', ', $manual_config[$path]));
+            }
         }
         
         // PRIORITY 2: Check for taxonomy archive pages (before general taxonomy matching)
