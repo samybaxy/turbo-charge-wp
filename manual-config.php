@@ -1142,6 +1142,20 @@ class TCWP_Manual_Config {
                             'elementor',
                             'yoast-seo'
                         ];
+                        
+                        // Special handling for asset-type taxonomies
+                        if (taxonomy && (taxonomy.includes('asset') || taxonomy === 'asset-type')) {
+                            smartPlugins.push('embedpress');
+                        }
+                        
+                        // Check if this is a document-related taxonomy item by examining the title/pattern
+                        var itemTitle = container.find('h4').text().toLowerCase();
+                        var itemPattern = container.find('input[name="manual_config_patterns[]"]').val();
+                        if (itemTitle.includes('document') || itemPattern.includes('document') || 
+                            itemTitle.includes('pdf') || itemPattern.includes('resources') ||
+                            itemTitle.includes('embed') || itemPattern.includes('/resources/')) {
+                            smartPlugins.push('embedpress');
+                        }
                         break;
                     case 'woocommerce':
                         smartPlugins = [
@@ -2445,9 +2459,31 @@ class TCWP_Manual_Config {
                     $pattern_matches = true;
                 }
                 
-                // SPECIFIC FIX: Better matching for /resources/ pattern
+                // SPECIFIC FIX: Better matching for /resources/ pattern and document asset types
                 if ($pattern === '/resources/' && strpos($path, '/resources/') === 0) {
                     $pattern_matches = true;
+                }
+                
+                // ENHANCED FIX: Better matching for document asset type patterns
+                // Handle patterns like /asset-type/document/ matching URLs like /resources/subfolder/document-name/
+                if (strpos($pattern, 'document') !== false && strpos($path, '/resources/') === 0) {
+                    $pattern_matches = true;
+                }
+                
+                // Pattern matching for asset-type taxonomy configurations
+                if (strpos($pattern, '/asset-type/') !== false || strpos($pattern, 'asset-type/') !== false) {
+                    $asset_type_segment = '';
+                    if (strpos($pattern, '/asset-type/') !== false) {
+                        $asset_type_segment = str_replace('/asset-type/', '', $pattern);
+                    } else {
+                        $asset_type_segment = str_replace('asset-type/', '', $pattern);
+                    }
+                    $asset_type_segment = trim($asset_type_segment, '/');
+                    
+                    // If this is a resources URL and the pattern contains 'document', match it
+                    if (strpos($path, '/resources/') === 0 && $asset_type_segment === 'document') {
+                        $pattern_matches = true;
+                    }
                 }
                 
                 // For taxonomy patterns, also try matching URL segments
@@ -2494,12 +2530,56 @@ class TCWP_Manual_Config {
                     'pdf_view' => 'code-snippets/code-snippets.php',
                     'contact-form' => 'contact-form-7/wp-contact-form-7.php',
                     'wpforms' => 'wpforms-lite/wpforms.php',
+                    // EmbedPress shortcodes and related plugins
+                    'embedpress' => 'embedpress/embedpress.php', 
+                    'embed' => 'embedpress/embedpress.php'
                 );
                 
                 // SPECIAL CASE: For /resources/ URLs, always include code-snippets if pdf_view shortcode found
                 if (strpos($path, '/resources/') === 0 && strpos($content, '[pdf_view') !== false) {
                     if (!in_array('code-snippets/code-snippets.php', $required_plugins)) {
                         $required_plugins[] = 'code-snippets/code-snippets.php';
+                    }
+                }
+                
+                // SPECIAL CASE: For /resources/ URLs (document asset types), check if EmbedPress is configured
+                // and include it even if not explicitly matched by patterns
+                if (strpos($path, '/resources/') === 0) {
+                    $embedpress_plugins = array('embedpress/embedpress.php');
+                    foreach ($manual_config as $config_pattern => $config_plugins) {
+                        // Check if any pattern has EmbedPress configured (especially document asset types)
+                        if (strpos($config_pattern, 'document') !== false || strpos($config_pattern, '/asset-type/') !== false) {
+                            foreach ($embedpress_plugins as $embed_plugin) {
+                                if (in_array($embed_plugin, $config_plugins) && !in_array($embed_plugin, $required_plugins)) {
+                                    $required_plugins[] = $embed_plugin;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // ENHANCED FIX: Check for EmbedPress Elementor widget usage in post content
+                if (strpos($content, 'embedpres_elementor') !== false || 
+                    strpos($content, 'ep-embed-content-wrapper') !== false ||
+                    strpos($content, 'ose-google-docs') !== false ||
+                    strpos($content, 'embedpress-elements-wrapper') !== false) {
+                    
+                    // This page uses EmbedPress Elementor widgets, ensure EmbedPress is loaded
+                    if (!in_array('embedpress/embedpress.php', $required_plugins)) {
+                        $required_plugins[] = 'embedpress/embedpress.php';
+                    }
+                }
+                
+                // ADDITIONAL CHECK: Look for EmbedPress in Elementor data meta field
+                $elementor_data = get_post_meta($post->ID, '_elementor_data', true);
+                if (!empty($elementor_data)) {
+                    // Check if the Elementor data contains EmbedPress widgets
+                    if (strpos($elementor_data, 'embedpres_elementor') !== false ||
+                        strpos($elementor_data, 'embedpress') !== false) {
+                        
+                        if (!in_array('embedpress/embedpress.php', $required_plugins)) {
+                            $required_plugins[] = 'embedpress/embedpress.php';
+                        }
                     }
                 }
                 
@@ -2539,6 +2619,22 @@ class TCWP_Manual_Config {
                         $required_plugins = array_merge($required_plugins, $plugins);
                     }
                 }
+            }
+        }
+        
+        // CRITICAL FIX: For /resources/ URLs, ensure EmbedPress is always included if configured for document types
+        if (strpos($path, '/resources/') === 0) {
+            $embedpress_found_in_config = false;
+            foreach ($manual_config as $config_pattern => $config_plugins) {
+                if (in_array('embedpress/embedpress.php', $config_plugins)) {
+                    $embedpress_found_in_config = true;
+                    break;
+                }
+            }
+            
+            // If EmbedPress is configured anywhere, include it for resources URLs
+            if ($embedpress_found_in_config && !in_array('embedpress/embedpress.php', $required_plugins)) {
+                $required_plugins[] = 'embedpress/embedpress.php';
             }
         }
         
@@ -2908,6 +3004,11 @@ class TCWP_Manual_Config {
                 
                 // Taxonomy pages often need filtering
                 $suggestions[] = 'jet-smart-filters/jet-smart-filters.php';
+                
+                // For asset-type taxonomies, especially document type, include EmbedPress
+                if ($taxonomy === 'asset-type' || strpos($taxonomy, 'asset') !== false) {
+                    $suggestions[] = 'embedpress/embedpress.php';
+                }
                 break;
                 
             case 'menu':
