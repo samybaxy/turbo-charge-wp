@@ -21,15 +21,19 @@ class TurboChargeWP_Plugin_Scanner {
      */
     private static $critical_patterns = [
         'page_builders' => [
-            'elementor', 'beaver-builder', 'divi-builder', 'wpbakery',
+            'elementor', 'elementor-pro', 'beaver-builder', 'divi-builder', 'wpbakery',
             'oxygen', 'bricks', 'breakdance'
         ],
         'theme_cores' => [
-            'jet-engine', 'jet-theme-core', 'astra-addon', 'kadence-blocks',
-            'generatepress-premium'
+            'jet-engine', 'jet-theme-core', 'jetthemecore', 'astra-addon', 'kadence-blocks',
+            'generatepress-premium', 'thim-elementor-kit'
         ],
         'framework_cores' => [
-            'redux-framework', 'cmb2', 'acf-pro', 'advanced-custom-fields'
+            'redux-framework', 'cmb2', 'acf-pro', 'advanced-custom-fields',
+            'code-snippets'
+        ],
+        'essential_utilities' => [
+            'header-footer-code-manager', 'nitropack'
         ]
     ];
 
@@ -109,68 +113,76 @@ class TurboChargeWP_Plugin_Scanner {
 
         $score = 0;
         $reasons = [];
+        $is_known_critical = false;
 
-        // Score 1: Check against known critical patterns (40 points)
+        // Score 1: Check against known critical patterns (100 points - automatically critical)
         foreach (self::$critical_patterns as $category => $patterns) {
             if (in_array($slug, $patterns)) {
-                $score += 40;
-                $reasons[] = "Known {$category} plugin";
+                $score = 100; // Known critical plugins get max score
+                $reasons[] = "Known {$category} plugin (auto-critical)";
+                $is_known_critical = true;
                 break;
             }
         }
 
-        // Score 2: Analyze plugin name and description (30 points max)
-        $text = strtolower($plugin_data['Name'] . ' ' . $plugin_data['Description']);
+        // Only run heuristic analysis if not already known as critical
+        if (!$is_known_critical) {
+            // Score 2: Analyze plugin name and description (30 points max)
+            $text = strtolower($plugin_data['Name'] . ' ' . $plugin_data['Description']);
 
-        $critical_matches = 0;
-        foreach (self::$critical_keywords as $keyword) {
-            if (strpos($text, $keyword) !== false) {
-                $critical_matches++;
+            $critical_matches = 0;
+            foreach (self::$critical_keywords as $keyword) {
+                if (strpos($text, $keyword) !== false) {
+                    $critical_matches++;
+                }
             }
-        }
-        if ($critical_matches > 0) {
-            $keyword_score = min(30, $critical_matches * 10);
-            $score += $keyword_score;
-            $reasons[] = "Contains {$critical_matches} critical keywords";
-        }
-
-        // Check for conditional keywords (reduces score if present)
-        $conditional_matches = 0;
-        foreach (self::$conditional_keywords as $keyword) {
-            if (strpos($text, $keyword) !== false) {
-                $conditional_matches++;
+            if ($critical_matches > 0) {
+                $keyword_score = min(30, $critical_matches * 10);
+                $score += $keyword_score;
+                $reasons[] = "Contains {$critical_matches} critical keywords";
             }
-        }
-        if ($conditional_matches > 0) {
-            $score -= min(20, $conditional_matches * 5);
-            $reasons[] = "Contains {$conditional_matches} conditional keywords";
-        }
 
-        // Score 3: Check for hooks registration (20 points max)
-        $hook_analysis = self::analyze_plugin_hooks($plugin_file);
-        if ($hook_analysis['critical_hooks'] > 0) {
-            $hook_score = min(20, $hook_analysis['critical_hooks'] * 5);
-            $score += $hook_score;
-            $reasons[] = "Registers {$hook_analysis['critical_hooks']} critical hooks";
-        }
+            // Check for conditional keywords (reduces score if present)
+            $conditional_matches = 0;
+            foreach (self::$conditional_keywords as $keyword) {
+                if (strpos($text, $keyword) !== false) {
+                    $conditional_matches++;
+                }
+            }
+            if ($conditional_matches > 0) {
+                $score -= min(20, $conditional_matches * 5);
+                $reasons[] = "Contains {$conditional_matches} conditional keywords";
+            }
 
-        // Score 4: Check if it enqueues global assets (15 points)
-        if ($hook_analysis['enqueues_assets']) {
-            $score += 15;
-            $reasons[] = "Enqueues global CSS/JS";
-        }
+            // Score 3: Check for hooks registration (20 points max)
+            $hook_analysis = self::analyze_plugin_hooks($plugin_file);
+            if ($hook_analysis['critical_hooks'] > 0) {
+                $hook_score = min(20, $hook_analysis['critical_hooks'] * 5);
+                $score += $hook_score;
+                $reasons[] = "Registers {$hook_analysis['critical_hooks']} critical hooks";
+            }
 
-        // Score 5: Check plugin size (larger = likely more critical) (10 points max)
-        $size_score = self::estimate_plugin_importance_by_size($plugin_file);
-        $score += $size_score;
-        if ($size_score > 0) {
-            $reasons[] = "Size indicates importance (+{$size_score} points)";
-        }
+            // Score 4: Check if it enqueues global assets (15 points)
+            if ($hook_analysis['enqueues_assets']) {
+                $score += 15;
+                $reasons[] = "Enqueues global CSS/JS";
+            }
 
-        // Score 6: Check for custom post types/taxonomies (10 points)
-        if ($hook_analysis['registers_cpt']) {
-            $score += 10;
-            $reasons[] = "Registers custom post types";
+            // Score 5: Check plugin size (larger = likely more critical) (10 points max)
+            $size_score = self::estimate_plugin_importance_by_size($plugin_file);
+            $score += $size_score;
+            if ($size_score > 0) {
+                $reasons[] = "Size indicates importance (+{$size_score} points)";
+            }
+
+            // Score 6: Check for custom post types/taxonomies (10 points)
+            if ($hook_analysis['registers_cpt']) {
+                $score += 10;
+                $reasons[] = "Registers custom post types";
+            }
+        } else {
+            // For known critical plugins, still analyze hooks for display purposes
+            $hook_analysis = self::analyze_plugin_hooks($plugin_file);
         }
 
         // Ensure score is within 0-100
