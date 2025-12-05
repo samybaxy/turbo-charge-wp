@@ -857,16 +857,6 @@ class TurboChargeWP_Main {
             'tcwp-settings',
             [$this, 'render_settings_page']
         );
-
-        // Add submenu for managing essential plugins
-        add_submenu_page(
-            'options-general.php',
-            'TCWP Essential Plugins',
-            'TCWP Essential Plugins',
-            'manage_options',
-            'tcwp-essential-plugins',
-            [$this, 'render_essential_plugins_page']
-        );
     }
 
     /**
@@ -892,11 +882,6 @@ class TurboChargeWP_Main {
         ?>
         <div class="wrap">
             <h1>Turbo Charge WP Settings</h1>
-
-            <div class="notice notice-info">
-                <p><strong>✨ New in v5.0:</strong> <a href="<?php echo admin_url('options-general.php?page=tcwp-essential-plugins'); ?>" class="button button-primary" style="margin-left: 10px;">Manage Essential Plugins</a></p>
-                <p>Use the intelligent scanner to automatically detect which plugins are critical for your site, then customize the list as needed.</p>
-            </div>
 
             <?php if (isset($_GET['tcwp_logs_cleared']) && $_GET['tcwp_logs_cleared'] === '1'): ?>
                 <div class="notice notice-success is-dismissible">
