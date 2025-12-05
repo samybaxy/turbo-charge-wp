@@ -1,0 +1,141 @@
+/* Turbo Charge WP Debug Widget Styles */
+
+#tcwp-debug-widget {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 99999;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.tcwp-debug-toggle {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
+.tcwp-debug-toggle:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transform: translateY(-2px);
+}
+
+.tcwp-debug-content {
+    display: none;
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    margin-top: 10px;
+    max-width: 320px;
+    max-height: 500px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.tcwp-debug-widget.expanded .tcwp-debug-content {
+    display: block;
+}
+
+.tcwp-debug-widget.expanded .tcwp-debug-toggle {
+    border-radius: 4px 4px 0 0;
+}
+
+.tcwp-debug-stat {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+}
+
+.tcwp-debug-stat strong {
+    color: #333;
+    display: inline-block;
+    min-width: 85px;
+}
+
+.tcwp-debug-stat.highlight {
+    background: #f0f9ff;
+    padding: 8px;
+    border-radius: 3px;
+    border: 1px solid #bae6fd;
+    margin: 5px 0;
+}
+
+.tcwp-debug-stat.highlight strong {
+    color: #0369a1;
+}
+
+.tcwp-debug-list {
+    margin: 10px 0;
+    padding: 8px 0;
+}
+
+.tcwp-debug-list strong {
+    display: block;
+    color: #333;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.tcwp-debug-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 15px;
+}
+
+.tcwp-debug-list li {
+    color: #666;
+    margin: 3px 0;
+    font-size: 11px;
+    word-break: break-word;
+}
+
+.tcwp-debug-list em {
+    color: #999;
+    font-style: italic;
+}
+
+.tcwp-debug-content hr {
+    margin: 8px 0;
+    border: none;
+    border-top: 1px solid #eee;
+}
+
+/* Scrollbar styling for debug content */
+.tcwp-debug-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.tcwp-debug-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.tcwp-debug-content::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 3px;
+}
+
+.tcwp-debug-content::-webkit-scrollbar-thumb:hover {
+    background: #764ba2;
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+    #tcwp-debug-widget {
+        bottom: 10px;
+        right: 10px;
+    }
+
+    .tcwp-debug-content {
+        max-width: calc(100vw - 40px);
+        max-height: 400px;
+    }
+}
