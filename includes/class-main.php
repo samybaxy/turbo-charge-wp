@@ -857,6 +857,16 @@ class TurboChargeWP_Main {
             'tcwp-settings',
             [$this, 'render_settings_page']
         );
+
+        // Hidden submenu for essential plugins management (accessed via button from main settings)
+        add_submenu_page(
+            null, // Hide from menu by using null parent
+            'TCWP Essential Plugins',
+            'TCWP Essential Plugins',
+            'manage_options',
+            'tcwp-essential-plugins',
+            [$this, 'render_essential_plugins_page']
+        );
     }
 
     /**
@@ -888,6 +898,16 @@ class TurboChargeWP_Main {
                     <p><strong>Success!</strong> Performance logs have been cleared.</p>
                 </div>
             <?php endif; ?>
+
+            <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2 style="margin-top: 0;">🔍 Intelligent Plugin Scanner</h2>
+                <p>Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical (page builders, theme cores), conditional (WooCommerce, forms), or optional (analytics, SEO).</p>
+                <a href="<?php echo admin_url('options-general.php?page=tcwp-essential-plugins'); ?>" class="button button-primary button-large">
+                    Manage Essential Plugins
+                </a>
+                <p class="description" style="margin-top: 10px;">View scanner results, customize the essential plugins list, and check cache statistics.</p>
+            </div>
+
             <form method="post" action="options.php">
                 <?php settings_fields('tcwp_settings'); ?>
                 <table class="form-table">
