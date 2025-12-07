@@ -108,6 +108,22 @@ class TurboChargeWP_Plugin_Scanner {
         $plugin_file = WP_PLUGIN_DIR . '/' . $plugin_path;
         $slug = self::get_plugin_slug($plugin_path);
 
+        // Check if plugin file exists before analyzing
+        if (!file_exists($plugin_file)) {
+            return [
+                'slug' => $slug,
+                'path' => $plugin_path,
+                'name' => $slug,
+                'description' => '',
+                'version' => '',
+                'author' => '',
+                'score' => 0,
+                'category' => 'optional',
+                'reasons' => ['Plugin file not found'],
+                'hook_count' => 0
+            ];
+        }
+
         // Get plugin headers
         $plugin_data = get_plugin_data($plugin_file, false, false);
 
@@ -128,7 +144,9 @@ class TurboChargeWP_Plugin_Scanner {
         // Only run heuristic analysis if not already known as critical
         if (!$is_known_critical) {
             // Score 2: Analyze plugin name and description (30 points max)
-            $text = strtolower($plugin_data['Name'] . ' ' . $plugin_data['Description']);
+            $name = $plugin_data['Name'] ?? '';
+            $description = $plugin_data['Description'] ?? '';
+            $text = strtolower($name . ' ' . $description);
 
             $critical_matches = 0;
             foreach (self::$critical_keywords as $keyword) {
@@ -191,10 +209,10 @@ class TurboChargeWP_Plugin_Scanner {
         return [
             'slug' => $slug,
             'path' => $plugin_path,
-            'name' => $plugin_data['Name'],
-            'description' => substr($plugin_data['Description'], 0, 150),
-            'version' => $plugin_data['Version'],
-            'author' => $plugin_data['Author'],
+            'name' => $plugin_data['Name'] ?? $slug,
+            'description' => substr($plugin_data['Description'] ?? '', 0, 150),
+            'version' => $plugin_data['Version'] ?? '',
+            'author' => $plugin_data['Author'] ?? '',
             'score' => $score,
             'category' => self::categorize_by_score($score),
             'reasons' => $reasons,
@@ -271,7 +289,8 @@ class TurboChargeWP_Plugin_Scanner {
 
         // Quick check: count files in directory
         $files = glob($plugin_dir . '/*.php');
-        $file_count = count($files);
+        // glob() can return false on error
+        $file_count = is_array($files) ? count($files) : 0;
 
         if ($file_count > 50) {
             return 10; // Very large plugin, likely critical
@@ -349,8 +368,9 @@ class TurboChargeWP_Plugin_Scanner {
             return $plugin['slug'];
         }, $analysis['critical']);
 
-        // Save as default essential plugins (user can modify)
-        if ($custom_essential === false) {
+        // Auto-save critical plugins as essential after scan
+        // This ensures critical plugins are always checked by default
+        if ($force_rescan || $custom_essential === false) {
             update_option('tcwp_essential_plugins', $essential_slugs);
         }
 
