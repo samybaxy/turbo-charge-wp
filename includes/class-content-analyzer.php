@@ -112,6 +112,15 @@ class TurboChargeWP_Content_Analyzer {
         'gallery' => null, // Standard WP gallery
         'envira-gallery' => 'envira-gallery-lite',
         'foo-gallery' => 'foogallery',
+
+        // Presto Player
+        'presto_player' => 'presto-player',
+        'presto_video' => 'presto-player',
+        'presto-player' => 'presto-player',
+
+        // EmbedPress
+        'embedpress' => 'embedpress',
+        'embed_press' => 'embedpress',
     ];
 
     /**
@@ -214,6 +223,21 @@ class TurboChargeWP_Content_Analyzer {
 
         // FluentCRM
         'fluentcrm-' => 'fluent-crm',
+
+        // Presto Player (Video Player)
+        'presto_video' => 'presto-player',
+        'presto-player' => 'presto-player',
+        'presto_player' => 'presto-player',
+
+        // EmbedPress
+        'embedpress' => 'embedpress',
+        'embed-press' => 'embedpress',
+        'embedpress_document' => 'embedpress',
+        'embedpress_pdf' => 'embedpress',
+
+        // Video Players
+        'video' => null, // Standard WP video
+        'video-player' => null,
     ];
 
     /**
@@ -238,6 +262,12 @@ class TurboChargeWP_Content_Analyzer {
 
         // Contact Form 7
         'contact-form-7/' => 'contact-form-7',
+
+        // Presto Player blocks
+        'presto-player/' => 'presto-player',
+
+        // EmbedPress blocks
+        'embedpress/' => 'embedpress',
     ];
 
     /**
@@ -294,6 +324,13 @@ class TurboChargeWP_Content_Analyzer {
         'tribe_events' => 'the-events-calendar',
         'tribe_venue' => 'the-events-calendar',
         'tribe_organizer' => 'the-events-calendar',
+
+        // Presto Player
+        'pp_video_block' => 'presto-player',
+        'presto_player' => 'presto-player',
+
+        // EmbedPress
+        'embedpress' => 'embedpress',
     ];
 
     /**
@@ -330,8 +367,121 @@ class TurboChargeWP_Content_Analyzer {
         $template_plugins = self::detect_from_template($post_id);
         $required = array_merge($required, $template_plugins);
 
+        // Layer 6: Theme builder template detection (JetThemeCore, Elementor Pro)
+        $theme_builder_plugins = self::detect_from_theme_builder_templates($post_id, $post->post_type);
+        $required = array_merge($required, $theme_builder_plugins);
+
         // Dedupe and return
         return array_unique(array_filter($required));
+    }
+
+    /**
+     * Detect plugins from theme builder templates
+     * Handles JetThemeCore, Elementor Pro Theme Builder, etc.
+     *
+     * @param int $post_id Post ID
+     * @param string $post_type Post type
+     * @return array Required plugins
+     */
+    public static function detect_from_theme_builder_templates($post_id, $post_type) {
+        $plugins = [];
+
+        // Get all theme builder templates that might apply
+        $template_types = [
+            'elementor_library',  // Elementor Pro templates
+            'jet-theme-core',     // JetThemeCore templates
+            'jet-engine',         // JetEngine listing templates
+        ];
+
+        foreach ($template_types as $template_type) {
+            $templates = self::get_applicable_templates($template_type, $post_type);
+            foreach ($templates as $template_id) {
+                // Analyze each template's Elementor data
+                $template_plugins = self::detect_elementor_widgets($template_id);
+                $plugins = array_merge($plugins, $template_plugins);
+
+                // Also check template content for shortcodes/blocks
+                $template = get_post($template_id);
+                if ($template) {
+                    $plugins = array_merge($plugins, self::detect_shortcodes($template->post_content));
+                    $plugins = array_merge($plugins, self::detect_gutenberg_blocks($template->post_content));
+                }
+            }
+        }
+
+        return $plugins;
+    }
+
+    /**
+     * Get applicable theme builder templates for a post type
+     *
+     * @param string $template_type Template post type
+     * @param string $target_post_type Target post type
+     * @return array Template IDs
+     */
+    private static function get_applicable_templates($template_type, $target_post_type) {
+        global $wpdb;
+
+        $templates = [];
+
+        // Get all published templates of this type
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts}
+             WHERE post_type = %s
+             AND post_status = 'publish'",
+            $template_type
+        ), ARRAY_A);
+
+        foreach ($results as $row) {
+            $template_id = $row['ID'];
+
+            // Check template conditions (varies by plugin)
+            // JetThemeCore stores conditions in postmeta
+            $conditions = get_post_meta($template_id, '_conditions', true);
+            if (!$conditions) {
+                $conditions = get_post_meta($template_id, '_elementor_conditions', true);
+            }
+
+            // If no conditions, or conditions include this post type, include the template
+            if (empty($conditions) || self::template_applies_to_post_type($conditions, $target_post_type)) {
+                $templates[] = $template_id;
+            }
+        }
+
+        return $templates;
+    }
+
+    /**
+     * Check if template conditions apply to a post type
+     *
+     * @param mixed $conditions Template conditions
+     * @param string $post_type Post type
+     * @return bool
+     */
+    private static function template_applies_to_post_type($conditions, $post_type) {
+        // Simple check - if conditions contain the post type or 'all', return true
+        if (is_array($conditions)) {
+            $conditions = json_encode($conditions);
+        }
+
+        if (is_string($conditions)) {
+            // Check for common patterns
+            if (strpos($conditions, 'all') !== false) {
+                return true;
+            }
+            if (strpos($conditions, $post_type) !== false) {
+                return true;
+            }
+            // Shop page conditions
+            if ($post_type === 'page' && strpos($conditions, 'shop') !== false) {
+                return true;
+            }
+            if ($post_type === 'product' && strpos($conditions, 'product') !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -368,10 +518,18 @@ class TurboChargeWP_Content_Analyzer {
 
         if (!empty($matches[1])) {
             foreach ($matches[1] as $shortcode) {
-                $shortcode = strtolower($shortcode);
+                $shortcode_lower = strtolower($shortcode);
 
-                if (isset(self::$shortcode_map[$shortcode]) && self::$shortcode_map[$shortcode] !== null) {
-                    $plugins[] = self::$shortcode_map[$shortcode];
+                // Strategy 1: Check exact match in known mapping
+                if (isset(self::$shortcode_map[$shortcode_lower]) && self::$shortcode_map[$shortcode_lower] !== null) {
+                    $plugins[] = self::$shortcode_map[$shortcode_lower];
+                    continue;
+                }
+
+                // Strategy 2: Intelligent prefix matching against active plugins
+                $discovered = self::discover_plugin_from_widget($shortcode);
+                if ($discovered) {
+                    $plugins[] = $discovered;
                 }
             }
         }
@@ -406,26 +564,106 @@ class TurboChargeWP_Content_Analyzer {
         // Extract widget types recursively
         $widget_types = self::extract_elementor_widgets($elementor_data);
 
-        // Map widgets to plugins
+        // Map widgets to plugins using multi-strategy approach
         foreach ($widget_types as $widget_type) {
-            $widget_type = strtolower($widget_type);
+            $widget_type_lower = strtolower($widget_type);
 
-            // Check exact match first
-            if (isset(self::$elementor_widget_map[$widget_type])) {
-                $plugins[] = self::$elementor_widget_map[$widget_type];
+            // Strategy 1: Check exact match in known mapping
+            if (isset(self::$elementor_widget_map[$widget_type_lower])) {
+                $plugins[] = self::$elementor_widget_map[$widget_type_lower];
                 continue;
             }
 
-            // Check prefix matches
+            // Strategy 2: Check prefix matches in known mapping
+            $found = false;
             foreach (self::$elementor_widget_map as $prefix => $plugin) {
-                if (substr($prefix, -1) === '-' && strpos($widget_type, rtrim($prefix, '-')) === 0) {
+                if (substr($prefix, -1) === '-' && strpos($widget_type_lower, rtrim($prefix, '-')) === 0) {
                     $plugins[] = $plugin;
+                    $found = true;
                     break;
                 }
+            }
+
+            if ($found) {
+                continue;
+            }
+
+            // Strategy 3: Intelligent prefix matching against active plugins
+            // Extract potential plugin prefix from widget name (e.g., "presto_video" → "presto")
+            $discovered = self::discover_plugin_from_widget($widget_type);
+            if ($discovered) {
+                $plugins[] = $discovered;
             }
         }
 
         return $plugins;
+    }
+
+    /**
+     * Intelligently discover which plugin provides a widget
+     * Uses prefix matching against active plugins
+     *
+     * @param string $widget_type Widget type name
+     * @return string|null Plugin slug or null if not found
+     */
+    private static function discover_plugin_from_widget($widget_type) {
+        static $active_plugins_cache = null;
+
+        // Get active plugins list (cached)
+        if ($active_plugins_cache === null) {
+            $active_plugins_cache = [];
+            $active = get_option('active_plugins', []);
+            foreach ($active as $plugin_path) {
+                $slug = explode('/', $plugin_path)[0];
+                $active_plugins_cache[$slug] = $slug;
+                // Also store variations
+                $active_plugins_cache[str_replace('-', '_', $slug)] = $slug;
+                $active_plugins_cache[str_replace('_', '-', $slug)] = $slug;
+            }
+        }
+
+        // Normalize widget type
+        $widget_lower = strtolower($widget_type);
+
+        // Extract prefix parts from widget name
+        // "presto_video" → ["presto", "presto_video"]
+        // "jet-woo-builder" → ["jet", "jet-woo", "jet-woo-builder"]
+        $prefixes = [];
+
+        // Handle underscore separators
+        $parts = explode('_', $widget_lower);
+        $prefix = '';
+        foreach ($parts as $part) {
+            $prefix = $prefix ? $prefix . '_' . $part : $part;
+            $prefixes[] = $prefix;
+            $prefixes[] = str_replace('_', '-', $prefix);
+        }
+
+        // Handle dash separators
+        $parts = explode('-', $widget_lower);
+        $prefix = '';
+        foreach ($parts as $part) {
+            $prefix = $prefix ? $prefix . '-' . $part : $part;
+            $prefixes[] = $prefix;
+            $prefixes[] = str_replace('-', '_', $prefix);
+        }
+
+        // Check if any prefix matches an active plugin
+        foreach ($prefixes as $prefix) {
+            if (isset($active_plugins_cache[$prefix])) {
+                return $active_plugins_cache[$prefix];
+            }
+
+            // Also check with common suffixes
+            foreach (['-pro', '-premium', '-addon', '-extension'] as $suffix) {
+                $with_suffix = $prefix . $suffix;
+                if (isset($active_plugins_cache[$with_suffix])) {
+                    return $active_plugins_cache[$with_suffix];
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -475,19 +713,37 @@ class TurboChargeWP_Content_Analyzer {
             return $plugins;
         }
 
-        // Find all block comments
-        preg_match_all('/<!-- wp:([a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)/', $content, $matches);
+        // Find all block comments (format: <!-- wp:namespace/block-name -->)
+        preg_match_all('/<!-- wp:([a-zA-Z0-9_-]+)(?:\/[a-zA-Z0-9_-]+)?/', $content, $matches);
 
         if (!empty($matches[1])) {
-            foreach ($matches[1] as $block) {
-                $block = strtolower($block);
+            foreach ($matches[1] as $block_namespace) {
+                $block_namespace = strtolower($block_namespace);
 
-                // Check prefix matches
+                // Skip core WordPress blocks
+                if ($block_namespace === 'core' || $block_namespace === 'wp') {
+                    continue;
+                }
+
+                // Strategy 1: Check known block mapping
+                $found = false;
                 foreach (self::$block_map as $prefix => $plugin) {
-                    if (strpos($block, $prefix) === 0) {
+                    if (strpos($block_namespace . '/', $prefix) === 0 || $block_namespace === rtrim($prefix, '/')) {
                         $plugins[] = $plugin;
+                        $found = true;
                         break;
                     }
+                }
+
+                if ($found) {
+                    continue;
+                }
+
+                // Strategy 2: Intelligent prefix matching against active plugins
+                // Block namespace often matches plugin slug (e.g., "woocommerce/..." → woocommerce)
+                $discovered = self::discover_plugin_from_widget($block_namespace);
+                if ($discovered) {
+                    $plugins[] = $discovered;
                 }
             }
         }
