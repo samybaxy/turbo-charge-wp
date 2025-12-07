@@ -10,9 +10,10 @@
  * - Hash-based slug lookup (O(1))
  * - No regex in hot path for cached pages
  * - Minimal processing before WordPress loads
+ * - Intelligent media plugin detection for rich content pages
  *
  * @package TurboChargeWP
- * @version 5.2.0
+ * @version 5.3.0
  */
 
 // Prevent direct access
@@ -23,7 +24,7 @@ if (!defined('ABSPATH')) {
 // Define constants FIRST so main plugin knows MU-loader is installed
 if (!defined('TCWP_MU_LOADER_ACTIVE')) {
     define('TCWP_MU_LOADER_ACTIVE', true);
-    define('TCWP_MU_LOADER_VERSION', '5.2.0');
+    define('TCWP_MU_LOADER_VERSION', '5.3.0');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -221,9 +222,10 @@ class TCWP_Early_Filter {
      *
      * Strategy:
      * 1. Extract URL slug (O(n) string operations)
-     * 2. Check cached lookup table (O(1) hash lookup)
+     * 2. Check cached lookup table (O(1) hash lookup) - MERGE with other detections
      * 3. Fallback to post type detection (O(1) hash lookup)
-     * 4. Fallback to lightweight URL patterns (only if not cached)
+     * 4. Add lightweight URL keyword patterns
+     * 5. Always merge all sources for comprehensive coverage
      */
     private static function detect_required_plugins_fast() {
         global $wpdb;
@@ -240,16 +242,23 @@ class TCWP_Early_Filter {
         $parent_slug = count($parts) > 1 ? $parts[count($parts) - 2] : '';
 
         // Step 1: Check pre-computed lookup table (O(1) hash lookup)
+        // IMPORTANT: Merge with other detections, don't return early
         $lookup = self::get_lookup_table();
 
         if (!empty($slug) && isset($lookup[$slug])) {
-            return $lookup[$slug];
+            $detected = array_merge($detected, $lookup[$slug]);
         }
 
         // Check by path for hierarchical pages
         $path_key = 'path:' . trim($uri, '/');
         if (isset($lookup[$path_key])) {
-            return $lookup[$path_key];
+            $detected = array_merge($detected, $lookup[$path_key]);
+        }
+
+        // Also check by post ID if available in lookup
+        $id_key = 'id:' . ($slug ?: '');
+        if (isset($lookup[$id_key])) {
+            $detected = array_merge($detected, $lookup[$id_key]);
         }
 
         // Step 2: Check post type from query vars (if available)
@@ -261,7 +270,7 @@ class TCWP_Early_Filter {
             }
         }
 
-        // Step 3: Fast keyword detection (string operations, no regex for common paths)
+        // Step 3: Fast keyword detection (always run to catch related plugins)
         $detected = array_merge($detected, self::detect_from_keywords($uri, $slug, $parent_slug));
 
         // Step 4: User state detection
@@ -294,12 +303,19 @@ class TCWP_Early_Filter {
                 $detected[] = 'woocommerce-subscriptions';
                 $detected[] = 'woocommerce-smart-coupons';
             }
+
+            // Shop pages commonly have media content - add media player plugins
+            if ($slug === 'shop' || $slug === 'product' || $slug === 'products') {
+                $detected = array_merge($detected, self::get_media_plugins());
+            }
         }
 
         // LearnPress keywords
         static $lp_keywords = ['courses', 'course', 'lessons', 'lesson', 'quiz', 'quizzes', 'instructor', 'become-instructor'];
         if (in_array($slug, $lp_keywords, true) || in_array($parent_slug, $lp_keywords, true) || strpos($uri, '/lp-') !== false) {
             $detected[] = 'learnpress';
+            // Courses commonly have video content
+            $detected = array_merge($detected, self::get_media_plugins());
         }
 
         // Membership keywords
@@ -329,6 +345,8 @@ class TCWP_Early_Filter {
         if (in_array($slug, $blog_keywords, true) || strpos($uri, '/category/') !== false || strpos($uri, '/tag/') !== false) {
             $detected[] = 'jet-blog';
             $detected[] = 'jet-smart-filters';
+            // Blog posts commonly have embedded videos
+            $detected = array_merge($detected, self::get_media_plugins());
         }
 
         // Search detection
@@ -412,6 +430,79 @@ class TCWP_Early_Filter {
             }
         }
         return false;
+    }
+
+    /**
+     * Get active media/video player plugins
+     * Intelligently detects which media plugins are actually active
+     *
+     * @return array Active media plugin slugs
+     */
+    private static function get_media_plugins() {
+        static $media_plugins = null;
+
+        if ($media_plugins !== null) {
+            return $media_plugins;
+        }
+
+        $media_plugins = [];
+
+        // Known media player plugin prefixes/slugs
+        static $known_media_plugins = [
+            'presto-player',
+            'presto-player-pro',
+            'embedpress',
+            'embed-press',
+            'video-player',
+            'videopack',
+            'jetvideo',
+            'jet-video',
+            'mediaelement',
+            'player',
+            'mediavine',
+            'flavor',
+            'flavor-player',
+            'flavor-video'
+        ];
+
+        // Get active plugins from database
+        global $wpdb;
+        $active = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                'active_plugins'
+            )
+        );
+
+        if ($active) {
+            $active = maybe_unserialize($active);
+            if (is_array($active)) {
+                foreach ($active as $plugin_path) {
+                    $slug = strpos($plugin_path, '/') !== false
+                        ? substr($plugin_path, 0, strpos($plugin_path, '/'))
+                        : $plugin_path;
+
+                    // Check if this is a known media plugin
+                    foreach ($known_media_plugins as $media_slug) {
+                        if ($slug === $media_slug || strpos($slug, $media_slug) === 0) {
+                            $media_plugins[] = $slug;
+                            break;
+                        }
+                    }
+
+                    // Also check for video/media/player in slug name
+                    if (strpos($slug, 'video') !== false ||
+                        strpos($slug, 'player') !== false ||
+                        strpos($slug, 'media') !== false) {
+                        if (!in_array($slug, $media_plugins, true)) {
+                            $media_plugins[] = $slug;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $media_plugins;
     }
 
     /**
