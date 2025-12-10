@@ -34,6 +34,9 @@ class TurboChargeWP_Plugin_Scanner {
         ],
         'essential_utilities' => [
             'header-footer-code-manager', 'nitropack'
+        ],
+        'media_players' => [
+            'presto-player', 'presto-player-pro'
         ]
     ];
 
