@@ -188,7 +188,12 @@ class TurboChargeWP_Main {
                     'jet-blog', 'jet-search', 'jet-reviews', 'jet-smart-filters',
                     'jet-compare-wishlist', 'jet-style-manager', 'jet-tricks',
                     'jetformbuilder', 'jet-woo-product-gallery', 'jet-woo-builder',
-                    'jet-theme-core', 'crocoblock-wizard'
+                    'jet-theme-core', 'crocoblock-wizard',
+                    // JetEngine Extensions (provide additional functionality/callbacks)
+                    'jet-engine-trim-callback', 'jet-engine-attachment-link-callback',
+                    'jet-engine-custom-visibility-conditions', 'jet-engine-dynamic-charts-module',
+                    'jet-engine-dynamic-tables-module', 'jet-engine-items-number-filter',
+                    'jet-engine-layout-switcher', 'jet-engine-post-expiration-period'
                 ],
             ],
             'jet-theme-core' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
@@ -202,6 +207,16 @@ class TurboChargeWP_Main {
             'jet-smart-filters' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
             'jet-compare-wishlist' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
             'jet-woo-builder' => ['depends_on' => ['jet-engine', 'woocommerce'], 'plugins_depending' => []],
+
+            // JetEngine Extensions
+            'jet-engine-trim-callback' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-attachment-link-callback' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-custom-visibility-conditions' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-dynamic-charts-module' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-dynamic-tables-module' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-items-number-filter' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-layout-switcher' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
+            'jet-engine-post-expiration-period' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
 
             // WooCommerce Ecosystem
             'woocommerce' => [
@@ -612,26 +627,55 @@ class TurboChargeWP_Main {
             </div>
 
             <div style="background: white; padding: 20px; margin: 20px 0; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2>Intelligent Scanner Results</h2>
-                <p>The intelligent scanner analyzed all <?php echo $analysis['total_plugins']; ?> active plugins using heuristics.</p>
+                <h2>Plugin Load Strategy</h2>
+                <p>Based on your selections and scanner analysis:</p>
+
+                <?php
+                // Calculate dynamic counts based on user selections
+                $all_plugins = array_merge($analysis['critical'], $analysis['conditional'], $analysis['optional']);
+                $essential_count = count($current_essential);
+                $conditional_count = 0;
+                $filtered_count = 0;
+
+                foreach ($all_plugins as $plugin) {
+                    $is_essential = in_array($plugin['slug'], $current_essential);
+                    if (!$is_essential) {
+                        // Not marked as essential by user
+                        if ($plugin['score'] >= 40) {
+                            $conditional_count++; // Will load based on page
+                        } else {
+                            $filtered_count++; // Will be filtered unless detected
+                        }
+                    }
+                }
+                ?>
 
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
                     <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
-                        <h3 style="margin: 0 0 5px 0; color: #155724;">Critical</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #155724;"><?php echo count($analysis['critical']); ?></div>
-                        <small>Always load (page builders, cores)</small>
+                        <h3 style="margin: 0 0 5px 0; color: #155724;">Essential</h3>
+                        <div style="font-size: 24px; font-weight: bold; color: #155724;"><?php echo $essential_count; ?></div>
+                        <small>Always load on every page</small>
                     </div>
                     <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;">
                         <h3 style="margin: 0 0 5px 0; color: #856404;">Conditional</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #856404;"><?php echo count($analysis['conditional']); ?></div>
-                        <small>Load based on page type</small>
+                        <div style="font-size: 24px; font-weight: bold; color: #856404;" id="tcwp-conditional-count"><?php echo $conditional_count; ?></div>
+                        <small>Load based on page detection</small>
                     </div>
                     <div style="padding: 15px; background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px;">
-                        <h3 style="margin: 0 0 5px 0; color: #0c5460;">Optional</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #0c5460;"><?php echo count($analysis['optional']); ?></div>
-                        <small>Can be filtered aggressively</small>
+                        <h3 style="margin: 0 0 5px 0; color: #0c5460;">Filtered</h3>
+                        <div style="font-size: 24px; font-weight: bold; color: #0c5460;" id="tcwp-filtered-count"><?php echo $filtered_count; ?></div>
+                        <small>Filtered unless detected</small>
                     </div>
                 </div>
+
+                <details style="margin: 15px 0;">
+                    <summary style="cursor: pointer; color: #666; font-size: 13px;">Scanner categorization (for reference)</summary>
+                    <div style="margin-top: 10px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 3px;">
+                        <p style="margin: 5px 0; font-size: 13px;"><strong>Critical (score ≥80):</strong> <?php echo count($analysis['critical']); ?> plugins</p>
+                        <p style="margin: 5px 0; font-size: 13px;"><strong>Conditional (score 40-79):</strong> <?php echo count($analysis['conditional']); ?> plugins</p>
+                        <p style="margin: 5px 0; font-size: 13px;"><strong>Optional (score <40):</strong> <?php echo count($analysis['optional']); ?> plugins</p>
+                    </div>
+                </details>
 
                 <form method="post" style="display: inline;">
                     <?php wp_nonce_field('tcwp_rescan_plugins', 'tcwp_rescan_nonce'); ?>

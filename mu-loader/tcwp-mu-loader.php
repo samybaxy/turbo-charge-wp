@@ -526,6 +526,15 @@ class TCWP_Early_Filter {
             'jet-woo-product-gallery' => ['jet-engine', 'woocommerce'],
             'jet-theme-core' => ['jet-engine'],
             'jetformbuilder' => ['jet-engine'],
+            // JetEngine Extensions
+            'jet-engine-trim-callback' => ['jet-engine'],
+            'jet-engine-attachment-link-callback' => ['jet-engine'],
+            'jet-engine-custom-visibility-conditions' => ['jet-engine'],
+            'jet-engine-dynamic-charts-module' => ['jet-engine'],
+            'jet-engine-dynamic-tables-module' => ['jet-engine'],
+            'jet-engine-items-number-filter' => ['jet-engine'],
+            'jet-engine-layout-switcher' => ['jet-engine'],
+            'jet-engine-post-expiration-period' => ['jet-engine'],
             'elementor-pro' => ['elementor'],
             'the-plus-addons-for-elementor-page-builder' => ['elementor'],
             'thim-elementor-kit' => ['elementor'],
@@ -544,7 +553,17 @@ class TCWP_Early_Filter {
 
         // Reverse dependencies
         static $reverse_deps = [
-            'jet-engine' => ['jet-menu', 'jet-blocks', 'jet-theme-core'],
+            'jet-engine' => [
+                'jet-menu', 'jet-blocks', 'jet-theme-core', 'jet-elements', 'jet-tabs',
+                'jet-popup', 'jet-blog', 'jet-search', 'jet-reviews', 'jet-smart-filters',
+                'jet-compare-wishlist', 'jet-tricks', 'jet-woo-builder', 'jet-woo-product-gallery',
+                'jetformbuilder',
+                // JetEngine Extensions
+                'jet-engine-trim-callback', 'jet-engine-attachment-link-callback',
+                'jet-engine-custom-visibility-conditions', 'jet-engine-dynamic-charts-module',
+                'jet-engine-dynamic-tables-module', 'jet-engine-items-number-filter',
+                'jet-engine-layout-switcher', 'jet-engine-post-expiration-period'
+            ],
             'elementor' => ['elementor-pro'],
         ];
 
