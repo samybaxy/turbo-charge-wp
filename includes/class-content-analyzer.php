@@ -426,6 +426,7 @@ class TurboChargeWP_Content_Analyzer {
         $templates = [];
 
         // Get all published templates of this type
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Theme builder template detection, custom post types not available via WP_Query in this context
         $results = $wpdb->get_results($wpdb->prepare(
             "SELECT ID FROM {$wpdb->posts}
              WHERE post_type = %s
@@ -890,6 +891,7 @@ class TurboChargeWP_Content_Analyzer {
      */
     private static function get_cached_page_requirements($slug, $wpdb) {
         // Query for cached requirements by slug
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Early detection before WP fully loaded, called from MU-loader
         $result = $wpdb->get_var($wpdb->prepare(
             "SELECT pm.meta_value
              FROM {$wpdb->postmeta} pm
@@ -940,6 +942,7 @@ class TurboChargeWP_Content_Analyzer {
         $map = [];
 
         // Get all published posts/pages with cached requirements
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk operation building URL map, direct query more efficient than multiple WP_Query calls
         $results = $wpdb->get_results(
             "SELECT p.post_name, pm.meta_value
              FROM {$wpdb->postmeta} pm
