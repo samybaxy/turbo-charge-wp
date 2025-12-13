@@ -50,7 +50,8 @@ if (defined('WP_CLI') && WP_CLI) {
 }
 
 // Fast URI checks for admin paths (string operations only, no regex)
-$request_uri = $_SERVER['REQUEST_URI'] ?? '';
+// phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only early detection, no actions performed
+$request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
 if (strpos($request_uri, '/wp-admin') !== false ||
     strpos($request_uri, '/wp-login') !== false ||
     strpos($request_uri, 'wp-activate.php') !== false ||
@@ -60,7 +61,8 @@ if (strpos($request_uri, '/wp-admin') !== false ||
 }
 
 // Fast action parameter check
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
+// phpcs:ignore WordPress.Security.NonceVerification -- Read-only early detection, prevents plugin loading conflicts
+$action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : (isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '');
 if ($action && in_array($action, ['activate', 'deactivate', 'activate-selected', 'deactivate-selected'], true)) {
     return;
 }
@@ -230,7 +232,8 @@ class TCWP_Early_Filter {
     private static function detect_required_plugins_fast() {
         global $wpdb;
         $detected = [];
-        $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only URL parsing for plugin detection
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
 
         // Normalize and extract slug (fast string operations)
         $uri = strtok($request_uri, '?');
@@ -262,9 +265,11 @@ class TCWP_Early_Filter {
         }
 
         // Step 2: Check post type from query vars (if available)
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only plugin detection, no actions performed
         if (isset($_GET['post_type'])) {
             $pt_requirements = self::get_post_type_requirements();
-            $post_type = sanitize_key($_GET['post_type']);
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only plugin detection, no actions performed
+            $post_type = sanitize_key(wp_unslash($_GET['post_type']));
             if (isset($pt_requirements[$post_type])) {
                 $detected = array_merge($detected, $pt_requirements[$post_type]);
             }
@@ -350,6 +355,7 @@ class TCWP_Early_Filter {
         }
 
         // Search detection
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only plugin detection, no actions performed
         if (isset($_GET['s']) || strpos($uri, '/search/') !== false) {
             $detected[] = 'jet-search';
             $detected[] = 'jet-smart-filters';
