@@ -78,7 +78,8 @@ function tcwp_install_mu_loader() {
     }
 
     // Check if we can write to mu-plugins directory
-    if (!is_writable($mu_plugins_dir)) {
+    // Use WordPress filesystem check instead of is_writable()
+    if (!wp_is_writable($mu_plugins_dir)) {
         return new WP_Error('not_writable', 'mu-plugins directory is not writable');
     }
 
@@ -99,7 +100,7 @@ function tcwp_uninstall_mu_loader() {
     $dest_file = WPMU_PLUGIN_DIR . '/tcwp-mu-loader.php';
 
     if (file_exists($dest_file)) {
-        return unlink($dest_file);
+        return wp_delete_file($dest_file);
     }
 
     return true;
@@ -209,13 +210,11 @@ function tcwp_first_time_setup() {
         // Attempt to install MU-loader automatically
         tcwp_install_mu_loader();
     } catch (Exception $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Turbo Charge WP setup error: ' . $e->getMessage());
-        }
+        // Silently handle installation errors (user can manually install)
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
     } catch (Error $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('Turbo Charge WP setup error: ' . $e->getMessage());
-        }
+        // Silently handle installation errors (user can manually install)
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
     }
 }
 
@@ -248,7 +247,8 @@ function tcwp_admin_notices() {
     }
 
     // Success notice after MU-loader installation
-    if (isset($_GET['tcwp_mu_installed']) && $_GET['tcwp_mu_installed'] === '1') {
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+    if (isset($_GET['tcwp_mu_installed']) && sanitize_text_field(wp_unslash($_GET['tcwp_mu_installed'])) === '1') {
         ?>
         <div class="notice notice-success is-dismissible">
             <p><strong>✅ MU-Loader installed successfully!</strong> Plugin filtering is now active and will work on the next page load.</p>
@@ -257,10 +257,11 @@ function tcwp_admin_notices() {
     }
 
     // Error notice if MU-loader installation failed
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
     if (isset($_GET['tcwp_mu_error'])) {
         ?>
         <div class="notice notice-error is-dismissible">
-            <p><strong>❌ MU-Loader installation failed:</strong> <?php echo esc_html(urldecode($_GET['tcwp_mu_error'])); ?></p>
+            <p><strong>❌ MU-Loader installation failed:</strong> <?php echo esc_html(urldecode(sanitize_text_field(wp_unslash($_GET['tcwp_mu_error'])))); ?></p>
             <p>Please manually copy <code>wp-content/plugins/turbo-charge-wp/mu-loader/tcwp-mu-loader.php</code> to <code>wp-content/mu-plugins/tcwp-mu-loader.php</code></p>
         </div>
         <?php
@@ -275,7 +276,7 @@ function tcwp_handle_mu_install() {
         return;
     }
 
-    if (!wp_verify_nonce($_GET['_wpnonce'], 'tcwp_install_mu')) {
+    if (!wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'tcwp_install_mu')) {
         wp_die('Security check failed');
     }
 
