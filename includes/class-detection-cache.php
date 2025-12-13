@@ -126,7 +126,9 @@ class TurboChargeWP_Detection_Cache {
         global $wpdb;
 
         // Clear transients
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_transient()
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_tcwp_url_%'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_transient()
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_tcwp_url_%'");
 
         // Clear object cache if available
@@ -151,7 +153,9 @@ class TurboChargeWP_Detection_Cache {
     public static function clear_all_content_cache() {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_post_meta()
         $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key = '_tcwp_required_plugins'");
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_post_meta()
         $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key = '_tcwp_cache_time'");
     }
 
@@ -172,11 +176,13 @@ class TurboChargeWP_Detection_Cache {
         global $wpdb;
 
         // Count URL cache entries
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Statistics query, no WP function available for counting transients
         $url_cache_count = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->options} WHERE option_name LIKE '_transient_tcwp_url_%'"
         );
 
         // Count content cache entries
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Statistics query, no WP function available for counting postmeta
         $content_cache_count = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_tcwp_required_plugins'"
         );
