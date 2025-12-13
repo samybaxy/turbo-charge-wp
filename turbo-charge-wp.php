@@ -238,7 +238,7 @@ function tcwp_admin_notices() {
             <p><strong>⚠️ Turbo Charge WP: MU-Loader Required!</strong></p>
             <p>Plugin filtering is enabled but the MU-loader is not installed. <strong>Without the MU-loader, filtering will NOT work.</strong></p>
             <p>
-                <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=tcwp-settings&tcwp_install_mu=1'), 'tcwp_install_mu'); ?>"
+                <a href="<?php echo esc_url(wp_nonce_url(admin_url('options-general.php?page=tcwp-settings&tcwp_install_mu=1'), 'tcwp_install_mu')); ?>"
                    class="button button-primary">
                     Install MU-Loader Now
                 </a>
