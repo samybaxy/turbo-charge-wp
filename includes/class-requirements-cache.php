@@ -138,6 +138,7 @@ class TurboChargeWP_Requirements_Cache {
         $count = 0;
 
         // Get all published posts and pages
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Admin-only bulk rebuild operation, cache is being built
         $posts = $wpdb->get_results(
             "SELECT ID, post_name, post_type
              FROM {$wpdb->posts}
