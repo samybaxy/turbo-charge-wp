@@ -105,13 +105,13 @@ class TurboChargeWP_Main {
         }
 
         // Sample only 10% of requests
-        if (mt_rand(1, 10) !== 1) {
+        if (wp_rand(1, 10) !== 1) {
             return;
         }
 
         $log = [
             'timestamp' => current_time('mysql'),
-            'url' => $_SERVER['REQUEST_URI'] ?? 'unknown',
+            'url' => isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : 'unknown',
             'essential_detected' => array_slice($data['essential_plugins'], 0, 10),
             'plugins_loaded' => count($data['loaded_plugins']),
             'plugins_filtered' => $data['filtered_count'],
@@ -254,11 +254,13 @@ class TurboChargeWP_Main {
             return;
         }
 
-        if ($_POST['tcwp_action'] === 'clear_logs') {
+        $action = sanitize_text_field(wp_unslash($_POST['tcwp_action']));
+
+        if ($action === 'clear_logs') {
             $this->clear_performance_logs();
         }
 
-        if ($_POST['tcwp_action'] === 'rebuild_cache') {
+        if ($action === 'rebuild_cache') {
             $this->rebuild_requirements_cache();
         }
     }
@@ -267,7 +269,7 @@ class TurboChargeWP_Main {
      * Rebuild the requirements lookup cache
      */
     public function rebuild_requirements_cache() {
-        if (!isset($_POST['tcwp_rebuild_cache_nonce']) || !wp_verify_nonce($_POST['tcwp_rebuild_cache_nonce'], 'tcwp_rebuild_cache_action')) {
+        if (!isset($_POST['tcwp_rebuild_cache_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['tcwp_rebuild_cache_nonce'])), 'tcwp_rebuild_cache_action')) {
             wp_die('Security check failed');
         }
 
@@ -285,7 +287,7 @@ class TurboChargeWP_Main {
      * Clear performance logs
      */
     public function clear_performance_logs() {
-        if (!isset($_POST['tcwp_clear_logs_nonce']) || !wp_verify_nonce($_POST['tcwp_clear_logs_nonce'], 'tcwp_clear_logs_action')) {
+        if (!isset($_POST['tcwp_clear_logs_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['tcwp_clear_logs_nonce'])), 'tcwp_clear_logs_action')) {
             wp_die('Security check failed');
         }
 
@@ -329,7 +331,7 @@ class TurboChargeWP_Main {
             wp_die('Access denied');
         }
 
-        $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
+        $active_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'settings';
 
         if ($active_tab === 'scanner') {
             $this->render_essential_plugins_page();
@@ -345,7 +347,7 @@ class TurboChargeWP_Main {
         <div class="wrap">
             <h1>Turbo Charge WP Settings</h1>
 
-            <?php if (isset($_GET['tcwp_logs_cleared']) && $_GET['tcwp_logs_cleared'] === '1'): ?>
+            <?php if (isset($_GET['tcwp_logs_cleared']) && sanitize_text_field(wp_unslash($_GET['tcwp_logs_cleared'])) === '1'): ?>
                 <div class="notice notice-success is-dismissible">
                     <p><strong>Success!</strong> Performance logs have been cleared.</p>
                 </div>
@@ -353,7 +355,7 @@ class TurboChargeWP_Main {
 
             <?php if (isset($_GET['tcwp_cache_rebuilt'])): ?>
                 <div class="notice notice-success is-dismissible">
-                    <p><strong>Success!</strong> Requirements cache rebuilt. Analyzed <?php echo intval($_GET['tcwp_cache_rebuilt']); ?> pages.</p>
+                    <p><strong>Success!</strong> Requirements cache rebuilt. Analyzed <?php echo intval(sanitize_text_field(wp_unslash($_GET['tcwp_cache_rebuilt']))); ?> pages.</p>
                 </div>
             <?php endif; ?>
 
@@ -569,7 +571,7 @@ class TurboChargeWP_Main {
 
         // Handle form submission
         if (isset($_POST['tcwp_save_essential']) && check_admin_referer('tcwp_essential_plugins', 'tcwp_essential_nonce')) {
-            $essential_plugins = isset($_POST['tcwp_essential']) ? array_map('sanitize_text_field', $_POST['tcwp_essential']) : [];
+            $essential_plugins = isset($_POST['tcwp_essential']) ? array_map('sanitize_text_field', wp_unslash($_POST['tcwp_essential'])) : [];
             update_option('tcwp_essential_plugins', $essential_plugins);
 
             self::$essential_plugins_cache = null;
