@@ -377,7 +377,7 @@ class TurboChargeWP_Main {
                         Regular plugins load too late to filter out other plugins.
                     </p>
                     <p>
-                        <a href="<?php echo wp_nonce_url(admin_url('options-general.php?page=tcwp-settings&tcwp_install_mu=1'), 'tcwp_install_mu'); ?>"
+                        <a href="<?php echo esc_url(wp_nonce_url(admin_url('options-general.php?page=tcwp-settings&tcwp_install_mu=1'), 'tcwp_install_mu')); ?>"
                            class="button button-primary">
                             Install MU-Loader Now
                         </a>
@@ -389,7 +389,7 @@ class TurboChargeWP_Main {
             <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">🔍 Intelligent Plugin Scanner</h2>
                 <p>Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical (page builders, theme cores), conditional (WooCommerce, forms), or optional (analytics, SEO).</p>
-                <a href="<?php echo admin_url('options-general.php?page=tcwp-settings&tab=scanner'); ?>" class="button button-primary button-large">
+                <a href="<?php echo esc_url(admin_url('options-general.php?page=tcwp-settings&tab=scanner')); ?>" class="button button-primary button-large">
                     Manage Essential Plugins
                 </a>
                 <p class="description" style="margin-top: 10px;">View scanner results, customize the essential plugins list, and check cache statistics.</p>
@@ -411,8 +411,8 @@ class TurboChargeWP_Main {
                         </button>
                     </form>
                     <span style="color: #666; font-size: 13px;">
-                        <strong><?php echo $cache_stats['total_entries']; ?></strong> pages cached
-                        (<?php echo $cache_stats['size_kb']; ?> KB)
+                        <strong><?php echo esc_html($cache_stats['total_entries']); ?></strong> pages cached
+                        (<?php echo esc_html($cache_stats['size_kb']); ?> KB)
                     </span>
                 </div>
                 <p class="description">Run this after bulk content changes or when conditional loading isn't working correctly.</p>
@@ -536,8 +536,8 @@ class TurboChargeWP_Main {
             <div style="margin-top: 30px; padding: 20px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
                 <h3>Technical Information</h3>
                 <ul>
-                    <li><strong>Plugin Version:</strong> <?php echo TCWP_VERSION; ?></li>
-                    <li><strong>MU-Loader:</strong> <?php echo $mu_loader_active ? '✅ Active (v' . TCWP_MU_LOADER_VERSION . ')' : '❌ Not Installed'; ?></li>
+                    <li><strong>Plugin Version:</strong> <?php echo esc_html(TCWP_VERSION); ?></li>
+                    <li><strong>MU-Loader:</strong> <?php echo $mu_loader_active ? '✅ Active (v' . esc_html(TCWP_MU_LOADER_VERSION) . ')' : '❌ Not Installed'; ?></li>
                     <li><strong>Total Active Plugins:</strong> <?php echo count(get_option('active_plugins', [])); ?></li>
                     <li><strong>Essential Plugins Configured:</strong> <?php echo count(get_option('tcwp_essential_plugins', [])); ?></li>
                     <li><strong>Object Cache:</strong> <?php echo wp_using_ext_object_cache() ? '✅ Active (Redis/Memcached)' : '❌ Not Available'; ?></li>
@@ -604,7 +604,7 @@ class TurboChargeWP_Main {
         <div class="wrap">
             <h1>Turbo Charge WP - Essential Plugins</h1>
 
-            <a href="<?php echo admin_url('options-general.php?page=tcwp-settings'); ?>" class="button button-secondary" style="margin-bottom: 15px;">
+            <a href="<?php echo esc_url(admin_url('options-general.php?page=tcwp-settings')); ?>" class="button button-secondary" style="margin-bottom: 15px;">
                 ← Back to Settings
             </a>
 
@@ -640,17 +640,17 @@ class TurboChargeWP_Main {
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
                     <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
                         <h3 style="margin: 0 0 5px 0; color: #155724;">Essential</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #155724;"><?php echo $essential_count; ?></div>
+                        <div style="font-size: 24px; font-weight: bold; color: #155724;"><?php echo esc_html($essential_count); ?></div>
                         <small>Always load on every page</small>
                     </div>
                     <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;">
                         <h3 style="margin: 0 0 5px 0; color: #856404;">Conditional</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #856404;" id="tcwp-conditional-count"><?php echo $conditional_count; ?></div>
+                        <div style="font-size: 24px; font-weight: bold; color: #856404;" id="tcwp-conditional-count"><?php echo esc_html($conditional_count); ?></div>
                         <small>Load based on page detection</small>
                     </div>
                     <div style="padding: 15px; background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px;">
                         <h3 style="margin: 0 0 5px 0; color: #0c5460;">Filtered</h3>
-                        <div style="font-size: 24px; font-weight: bold; color: #0c5460;" id="tcwp-filtered-count"><?php echo $filtered_count; ?></div>
+                        <div style="font-size: 24px; font-weight: bold; color: #0c5460;" id="tcwp-filtered-count"><?php echo esc_html($filtered_count); ?></div>
                         <small>Filtered unless detected</small>
                     </div>
                 </div>
@@ -713,7 +713,7 @@ class TurboChargeWP_Main {
                                         <div class="tcwp-plugin-name">
                                             <?php echo esc_html($plugin['name']); ?>
                                             <span class="tcwp-plugin-score <?php echo esc_attr($plugin['category']); ?>">
-                                                Score: <?php echo $plugin['score']; ?>
+                                                Score: <?php echo esc_html($plugin['score']); ?>
                                             </span>
                                         </div>
                                         <div class="tcwp-plugin-desc"><?php echo esc_html($plugin['description']); ?></div>
@@ -733,7 +733,7 @@ class TurboChargeWP_Main {
                     <button type="submit" name="tcwp_save_essential" class="button button-primary button-hero">
                         💾 Save Essential Plugins
                     </button>
-                    <a href="<?php echo admin_url('options-general.php?page=tcwp-settings'); ?>" class="button button-secondary button-hero" style="margin-left: 10px;">
+                    <a href="<?php echo esc_url(admin_url('options-general.php?page=tcwp-settings')); ?>" class="button button-secondary button-hero" style="margin-left: 10px;">
                         ← Back to Settings
                     </a>
                 </p>
@@ -742,9 +742,9 @@ class TurboChargeWP_Main {
             <div style="background: #f9f9f9; padding: 20px; margin: 20px 0; border: 1px solid #ddd; border-radius: 4px;">
                 <h3>Cache Statistics</h3>
                 <ul>
-                    <li><strong>URL Detection Cache:</strong> <?php echo $cache_stats['url_cache_entries']; ?> entries</li>
-                    <li><strong>Content Scan Cache:</strong> <?php echo $cache_stats['content_cache_entries']; ?> entries</li>
-                    <li><strong>Estimated Cache Size:</strong> <?php echo $cache_stats['estimated_size_kb']; ?> KB</li>
+                    <li><strong>URL Detection Cache:</strong> <?php echo esc_html($cache_stats['url_cache_entries']); ?> entries</li>
+                    <li><strong>Content Scan Cache:</strong> <?php echo esc_html($cache_stats['content_cache_entries']); ?> entries</li>
+                    <li><strong>Estimated Cache Size:</strong> <?php echo esc_html($cache_stats['estimated_size_kb']); ?> KB</li>
                     <li><strong>Object Cache:</strong> <?php echo $cache_stats['using_object_cache'] ? '✓ Enabled (Redis/Memcached)' : '✗ Using transients'; ?></li>
                 </ul>
             </div>
