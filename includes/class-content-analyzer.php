@@ -861,7 +861,9 @@ class TurboChargeWP_Content_Analyzer {
         }
 
         // Query parameter based detection
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only detection, no actions performed
         if (isset($_GET['post_type'])) {
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only detection, no actions performed
             $post_type = sanitize_key($_GET['post_type']);
             if (isset(self::$post_type_map[$post_type])) {
                 $detected[] = self::$post_type_map[$post_type];
