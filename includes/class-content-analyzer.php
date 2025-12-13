@@ -220,6 +220,7 @@ class TurboChargeWP_Content_Analyzer {
 
         // Fluent Forms
         'fluentform' => 'fluentform',
+        'fluent-form-widget' => 'fluentform',
 
         // FluentCRM
         'fluentcrm-' => 'fluent-crm',

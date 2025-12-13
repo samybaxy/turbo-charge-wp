@@ -13,7 +13,6 @@ class TurboChargeWP_Main {
     private static $instance = null;
     private static $enabled = false;
     private static $dependency_map = [];
-    private static $reverse_deps = [];
     private static $log_messages = [];
     private static $essential_plugins_cache = null;
 
@@ -245,18 +244,6 @@ class TurboChargeWP_Main {
             'fluentform' => ['depends_on' => [], 'plugins_depending' => ['fluentformpro']],
             'fluentformpro' => ['depends_on' => ['fluentform'], 'plugins_depending' => []],
         ];
-
-        self::build_reverse_deps();
-    }
-
-    /**
-     * Build reverse dependency index
-     */
-    private static function build_reverse_deps() {
-        self::$reverse_deps = [];
-        foreach (self::$dependency_map as $plugin => $data) {
-            self::$reverse_deps[$plugin] = $data['plugins_depending'];
-        }
     }
 
     /**
