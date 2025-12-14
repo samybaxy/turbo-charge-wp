@@ -350,7 +350,7 @@ class TurboChargeWP_Main {
                     printf(
                         /* translators: %d: number of pages analyzed */
                         esc_html__( 'Requirements cache rebuilt. Analyzed %d pages.', 'turbo-charge-wp' ),
-                        $pages_count
+                        absint( $pages_count )
                     );
                     ?></p>
                 </div>
@@ -838,7 +838,7 @@ class TurboChargeWP_Main {
             printf(
                 /* translators: %d: number of plugins analyzed */
                 esc_html__( 'Dependency map rebuilt. Analyzed %d plugins.', 'turbo-charge-wp' ),
-                $count
+                absint( $count )
             );
             echo '</p></div>';
         }
