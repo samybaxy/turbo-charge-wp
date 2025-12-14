@@ -27,6 +27,7 @@ define('TCWP_URL', plugin_dir_url(__FILE__));
 define('TCWP_BASENAME', plugin_basename(__FILE__));
 
 // Load core components
+require_once TCWP_DIR . 'includes/class-dependency-detector.php';
 require_once TCWP_DIR . 'includes/class-plugin-scanner.php';
 require_once TCWP_DIR . 'includes/class-detection-cache.php';
 require_once TCWP_DIR . 'includes/class-content-analyzer.php';

@@ -56,8 +56,8 @@ class TurboChargeWP_Main {
     private function setup() {
         self::$enabled = get_option('tcwp_enabled', false);
 
-        // Load dependency map (for admin display purposes)
-        self::load_dependency_map();
+        // Load dependency map (dynamically detected or from database)
+        self::$dependency_map = TurboChargeWP_Dependency_Detector::get_dependency_map();
 
         // Setup admin hooks
         if (is_admin()) {
@@ -82,8 +82,8 @@ class TurboChargeWP_Main {
 
         // Cache invalidation hooks
         add_action('save_post', [$this, 'clear_post_cache'], 10, 1);
-        add_action('activated_plugin', [$this, 'clear_all_detection_cache']);
-        add_action('deactivated_plugin', [$this, 'clear_all_detection_cache']);
+        add_action('activated_plugin', [$this, 'handle_plugin_activation']);
+        add_action('deactivated_plugin', [$this, 'handle_plugin_deactivation']);
 
         // Content analysis on post save (for smart plugin detection)
         add_action('save_post', [$this, 'analyze_post_requirements'], 20, 2);
@@ -135,12 +135,31 @@ class TurboChargeWP_Main {
     }
 
     /**
-     * Clear all detection caches when plugins change
+     * Handle plugin activation - rebuild dependencies and clear caches
      */
-    public function clear_all_detection_cache() {
+    public function handle_plugin_activation() {
+        // Rebuild dependency map to include newly activated plugin
+        TurboChargeWP_Dependency_Detector::rebuild_dependency_map();
+
+        // Clear caches
         TurboChargeWP_Detection_Cache::clear_all_caches();
         TurboChargeWP_Requirements_Cache::clear();
         self::$essential_plugins_cache = null;
+        self::$dependency_map = [];
+    }
+
+    /**
+     * Handle plugin deactivation - rebuild dependencies and clear caches
+     */
+    public function handle_plugin_deactivation() {
+        // Rebuild dependency map to remove deactivated plugin
+        TurboChargeWP_Dependency_Detector::rebuild_dependency_map();
+
+        // Clear caches
+        TurboChargeWP_Detection_Cache::clear_all_caches();
+        TurboChargeWP_Requirements_Cache::clear();
+        self::$essential_plugins_cache = null;
+        self::$dependency_map = [];
     }
 
     /**
@@ -174,77 +193,26 @@ class TurboChargeWP_Main {
     }
 
     /**
-     * Load the dependency map for all supported plugins
+     * NOTE: Dependency map is now auto-detected by TurboChargeWP_Dependency_Detector
+     *
+     * The dependency map is no longer hardcoded. Instead, it is:
+     * 1. Automatically detected by scanning plugin headers and code
+     * 2. Stored in database option 'tcwp_dependency_map'
+     * 3. Rebuilt on plugin activation/deactivation
+     * 4. Can be customized via filter: apply_filters('tcwp_dependency_map', $map)
+     *
+     * To add custom dependencies programmatically:
+     *
+     * add_filter('tcwp_dependency_map', function($map) {
+     *     $map['my-plugin'] = [
+     *         'depends_on' => ['parent-plugin'],
+     *         'plugins_depending' => []
+     *     ];
+     *     return $map;
+     * });
+     *
+     * Or use the admin UI: Settings → Turbo Charge WP → Dependencies
      */
-    private static function load_dependency_map() {
-        self::$dependency_map = [
-            // JetEngine Ecosystem
-            'jet-menu' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine' => [
-                'depends_on' => [],
-                'plugins_depending' => [
-                    'jet-menu', 'jet-blocks', 'jet-elements', 'jet-tabs', 'jet-popup',
-                    'jet-blog', 'jet-search', 'jet-reviews', 'jet-smart-filters',
-                    'jet-compare-wishlist', 'jet-style-manager', 'jet-tricks',
-                    'jetformbuilder', 'jet-woo-product-gallery', 'jet-woo-builder',
-                    'jet-theme-core', 'crocoblock-wizard',
-                    // JetEngine Extensions (provide additional functionality/callbacks)
-                    'jet-engine-trim-callback', 'jet-engine-attachment-link-callback',
-                    'jet-engine-custom-visibility-conditions', 'jet-engine-dynamic-charts-module',
-                    'jet-engine-dynamic-tables-module', 'jet-engine-items-number-filter',
-                    'jet-engine-layout-switcher', 'jet-engine-post-expiration-period'
-                ],
-            ],
-            'jet-theme-core' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-blocks' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-elements' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-tabs' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-popup' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-blog' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-search' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-reviews' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-smart-filters' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-compare-wishlist' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-woo-builder' => ['depends_on' => ['jet-engine', 'woocommerce'], 'plugins_depending' => []],
-
-            // JetEngine Extensions
-            'jet-engine-trim-callback' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-attachment-link-callback' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-custom-visibility-conditions' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-dynamic-charts-module' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-dynamic-tables-module' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-items-number-filter' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-layout-switcher' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-            'jet-engine-post-expiration-period' => ['depends_on' => ['jet-engine'], 'plugins_depending' => []],
-
-            // WooCommerce Ecosystem
-            'woocommerce' => [
-                'depends_on' => [],
-                'plugins_depending' => [
-                    'woocommerce-memberships', 'woocommerce-subscriptions',
-                    'woocommerce-product-bundles', 'woocommerce-smart-coupons',
-                    'jet-woo-builder', 'jet-woo-product-gallery'
-                ],
-            ],
-            'woocommerce-memberships' => ['depends_on' => ['woocommerce'], 'plugins_depending' => []],
-            'woocommerce-subscriptions' => ['depends_on' => ['woocommerce'], 'plugins_depending' => []],
-
-            // Elementor Ecosystem
-            'elementor' => [
-                'depends_on' => [],
-                'plugins_depending' => ['elementor-pro', 'the-plus-addons-for-elementor-page-builder', 'thim-elementor-kit'],
-            ],
-            'elementor-pro' => ['depends_on' => ['elementor'], 'plugins_depending' => []],
-
-            // Content Restriction
-            'restrict-content-pro' => ['depends_on' => [], 'plugins_depending' => ['rcp-content-filter-utility']],
-            'rcp-content-filter-utility' => ['depends_on' => ['restrict-content-pro'], 'plugins_depending' => []],
-
-            // Forms
-            'fluentform' => ['depends_on' => [], 'plugins_depending' => ['fluentformpro']],
-            'fluentformpro' => ['depends_on' => ['fluentform'], 'plugins_depending' => []],
-        ];
-    }
 
     /**
      * Handle clear logs request
@@ -349,6 +317,11 @@ class TurboChargeWP_Main {
             return;
         }
 
+        if ( 'dependencies' === $active_tab ) {
+            $this->render_dependencies_page();
+            return;
+        }
+
         $enabled = get_option('tcwp_enabled', false);
         $debug_enabled = get_option('tcwp_debug_enabled', false);
         $logs = get_transient('tcwp_logs') ?: [];
@@ -410,14 +383,23 @@ class TurboChargeWP_Main {
                 <?php endif; ?>
             </div>
 
-            <!-- Scanner Section -->
-            <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2 style="margin-top: 0;"><?php esc_html_e( 'Intelligent Plugin Scanner', 'turbo-charge-wp' ); ?></h2>
-                <p><?php esc_html_e( 'Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical (page builders, theme cores), conditional (WooCommerce, forms), or optional (analytics, SEO).', 'turbo-charge-wp' ); ?></p>
-                <a href="<?php echo esc_url( admin_url( 'options-general.php?page=tcwp-settings&tab=scanner' ) ); ?>" class="button button-primary button-large">
-                    <?php esc_html_e( 'Manage Essential Plugins', 'turbo-charge-wp' ); ?>
-                </a>
-                <p class="description" style="margin-top: 10px;"><?php esc_html_e( 'View scanner results, customize the essential plugins list, and check cache statistics.', 'turbo-charge-wp' ); ?></p>
+            <!-- Scanner & Dependencies Section -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+                <div style="background: white; padding: 20px; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e( 'Intelligent Plugin Scanner', 'turbo-charge-wp' ); ?></h2>
+                    <p><?php esc_html_e( 'Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical, conditional, or optional.', 'turbo-charge-wp' ); ?></p>
+                    <a href="<?php echo esc_url( admin_url( 'options-general.php?page=tcwp-settings&tab=scanner' ) ); ?>" class="button button-primary button-large">
+                        <?php esc_html_e( 'Manage Essential Plugins', 'turbo-charge-wp' ); ?>
+                    </a>
+                </div>
+
+                <div style="background: white; padding: 20px; border-left: 4px solid #28a745; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e( 'Plugin Dependencies', 'turbo-charge-wp' ); ?></h2>
+                    <p><?php esc_html_e( 'View automatically detected plugin dependencies. Dependencies are discovered by analyzing plugin headers, code patterns, and ecosystem relationships.', 'turbo-charge-wp' ); ?></p>
+                    <a href="<?php echo esc_url( admin_url( 'options-general.php?page=tcwp-settings&tab=dependencies' ) ); ?>" class="button button-secondary button-large">
+                        <?php esc_html_e( 'View Dependency Map', 'turbo-charge-wp' ); ?>
+                    </a>
+                </div>
             </div>
 
             <!-- Smart Content Detection -->
@@ -836,6 +818,143 @@ class TurboChargeWP_Main {
                         Plugin filtering is not working. Install the MU-Loader from Settings → Turbo Charge WP.
                     </p>
                 <?php endif; ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render dependencies management page
+     */
+    public function render_dependencies_page() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'turbo-charge-wp' ) );
+        }
+
+        // Handle rebuild request
+        if ( isset( $_POST['tcwp_rebuild_dependencies'] ) && check_admin_referer( 'tcwp_rebuild_dependencies', 'tcwp_rebuild_deps_nonce' ) ) {
+            $count = TurboChargeWP_Dependency_Detector::rebuild_dependency_map();
+            echo '<div class="notice notice-success is-dismissible"><p><strong>' . esc_html__( 'Success!', 'turbo-charge-wp' ) . '</strong> ';
+            printf(
+                /* translators: %d: number of plugins analyzed */
+                esc_html__( 'Dependency map rebuilt. Analyzed %d plugins.', 'turbo-charge-wp' ),
+                $count
+            );
+            echo '</p></div>';
+        }
+
+        $dependency_map = TurboChargeWP_Dependency_Detector::get_dependency_map();
+        $stats = TurboChargeWP_Dependency_Detector::get_stats();
+
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e( 'Turbo Charge WP - Plugin Dependencies', 'turbo-charge-wp' ); ?></h1>
+
+            <a href="<?php echo esc_url( admin_url( 'options-general.php?page=tcwp-settings' ) ); ?>" class="button button-secondary" style="margin-bottom: 15px;">
+                <?php esc_html_e( '← Back to Settings', 'turbo-charge-wp' ); ?>
+            </a>
+
+            <div class="notice notice-info">
+                <p><strong><?php esc_html_e( 'About Plugin Dependencies', 'turbo-charge-wp' ); ?></strong></p>
+                <p><?php esc_html_e( 'Dependencies are automatically detected by analyzing plugin headers, code patterns, and ecosystem relationships. When a plugin is loaded, all its dependencies are automatically loaded too.', 'turbo-charge-wp' ); ?></p>
+            </div>
+
+            <!-- Statistics -->
+            <div style="background: white; padding: 20px; margin: 20px 0; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                <h2><?php esc_html_e( 'Dependency Statistics', 'turbo-charge-wp' ); ?></h2>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0;">
+                    <div style="padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px;">
+                        <h3 style="margin: 0 0 5px 0; color: #004085;"><?php esc_html_e( 'Total Plugins', 'turbo-charge-wp' ); ?></h3>
+                        <div style="font-size: 24px; font-weight: bold; color: #004085;"><?php echo esc_html( $stats['total_plugins'] ); ?></div>
+                        <small><?php esc_html_e( 'In dependency map', 'turbo-charge-wp' ); ?></small>
+                    </div>
+                    <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;">
+                        <h3 style="margin: 0 0 5px 0; color: #856404;"><?php esc_html_e( 'With Dependencies', 'turbo-charge-wp' ); ?></h3>
+                        <div style="font-size: 24px; font-weight: bold; color: #856404;"><?php echo esc_html( $stats['plugins_with_dependencies'] ); ?></div>
+                        <small><?php esc_html_e( 'Plugins requiring others', 'turbo-charge-wp' ); ?></small>
+                    </div>
+                    <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+                        <h3 style="margin: 0 0 5px 0; color: #155724;"><?php esc_html_e( 'Relationships', 'turbo-charge-wp' ); ?></h3>
+                        <div style="font-size: 24px; font-weight: bold; color: #155724;"><?php echo esc_html( $stats['total_dependency_relationships'] ); ?></div>
+                        <small><?php esc_html_e( 'Total dependencies', 'turbo-charge-wp' ); ?></small>
+                    </div>
+                </div>
+
+                <form method="post" style="margin-top: 20px;">
+                    <?php wp_nonce_field( 'tcwp_rebuild_dependencies', 'tcwp_rebuild_deps_nonce' ); ?>
+                    <button type="submit" name="tcwp_rebuild_dependencies" class="button button-primary" onclick="return confirm('<?php echo esc_js( __( 'Rebuild dependency map? This will scan all active plugins.', 'turbo-charge-wp' ) ); ?>');">
+                        <?php esc_html_e( '🔄 Rebuild Dependency Map', 'turbo-charge-wp' ); ?>
+                    </button>
+                    <small style="margin-left: 10px; color: #666;"><?php esc_html_e( 'Detection method: Heuristic scanning (plugin headers, code analysis, patterns)', 'turbo-charge-wp' ); ?></small>
+                </form>
+            </div>
+
+            <!-- Dependency List -->
+            <h2><?php esc_html_e( 'Plugin Dependency Map', 'turbo-charge-wp' ); ?></h2>
+
+            <style>
+                .tcwp-dep-table { width: 100%; border-collapse: collapse; background: white; }
+                .tcwp-dep-table th { background: #f0f0f0; padding: 10px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600; }
+                .tcwp-dep-table td { padding: 10px; border-bottom: 1px solid #e0e0e0; }
+                .tcwp-dep-table tr:hover { background: #f9f9f9; }
+                .tcwp-dep-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; margin: 2px; }
+                .tcwp-dep-badge.depends { background: #fff3cd; color: #856404; }
+                .tcwp-dep-badge.required { background: #d4edda; color: #155724; }
+                .tcwp-dep-badge.none { background: #e2e3e5; color: #6c757d; }
+                .tcwp-plugin-name { font-weight: 600; color: #0073aa; }
+            </style>
+
+            <table class="tcwp-dep-table">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;"><?php esc_html_e( 'Plugin', 'turbo-charge-wp' ); ?></th>
+                        <th style="width: 35%;"><?php esc_html_e( 'Depends On', 'turbo-charge-wp' ); ?></th>
+                        <th style="width: 35%;"><?php esc_html_e( 'Required By', 'turbo-charge-wp' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    ksort( $dependency_map );
+                    foreach ( $dependency_map as $plugin_slug => $data ) :
+                        $depends_on = ! empty( $data['depends_on'] ) ? $data['depends_on'] : [];
+                        $required_by = ! empty( $data['plugins_depending'] ) ? $data['plugins_depending'] : [];
+                        ?>
+                        <tr>
+                            <td>
+                                <span class="tcwp-plugin-name"><?php echo esc_html( $plugin_slug ); ?></span>
+                            </td>
+                            <td>
+                                <?php if ( ! empty( $depends_on ) ) : ?>
+                                    <?php foreach ( $depends_on as $dep ) : ?>
+                                        <span class="tcwp-dep-badge depends"><?php echo esc_html( $dep ); ?></span>
+                                    <?php endforeach; ?>
+                                <?php else : ?>
+                                    <span class="tcwp-dep-badge none"><?php esc_html_e( 'None', 'turbo-charge-wp' ); ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ( ! empty( $required_by ) ) : ?>
+                                    <?php foreach ( $required_by as $req ) : ?>
+                                        <span class="tcwp-dep-badge required"><?php echo esc_html( $req ); ?></span>
+                                    <?php endforeach; ?>
+                                <?php else : ?>
+                                    <span class="tcwp-dep-badge none"><?php esc_html_e( 'None', 'turbo-charge-wp' ); ?></span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <div style="margin-top: 30px; padding: 20px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                <h3><?php esc_html_e( 'How Dependencies Are Detected', 'turbo-charge-wp' ); ?></h3>
+                <ul>
+                    <li><strong><?php esc_html_e( 'WordPress 6.5+ Headers:', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( 'Reads "Requires Plugins" header from plugin files', 'turbo-charge-wp' ); ?></li>
+                    <li><strong><?php esc_html_e( 'Code Analysis:', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( 'Detects class_exists(), defined() checks for parent plugins', 'turbo-charge-wp' ); ?></li>
+                    <li><strong><?php esc_html_e( 'Naming Patterns:', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( '"jet-*" depends on "jet-engine", "woocommerce-*" depends on "woocommerce"', 'turbo-charge-wp' ); ?></li>
+                    <li><strong><?php esc_html_e( 'Known Ecosystems:', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( 'Built-in knowledge of major plugin families (Elementor, WooCommerce, LearnPress, etc.)', 'turbo-charge-wp' ); ?></li>
+                </ul>
+                <p><strong><?php esc_html_e( 'Filter Hook:', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( 'Developers can customize dependencies using the', 'turbo-charge-wp' ); ?> <code>tcwp_dependency_map</code> <?php esc_html_e( 'filter.', 'turbo-charge-wp' ); ?></p>
             </div>
         </div>
         <?php
