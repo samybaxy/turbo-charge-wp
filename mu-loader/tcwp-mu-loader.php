@@ -51,32 +51,33 @@ if (defined('WP_CLI') && WP_CLI) {
 
 // Fast URI checks for admin paths (string operations only, no regex)
 // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only early detection, no actions performed
-$request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
-if (strpos($request_uri, '/wp-admin') !== false ||
-    strpos($request_uri, '/wp-login') !== false ||
-    strpos($request_uri, 'wp-activate.php') !== false ||
-    strpos($request_uri, 'wp-signup.php') !== false ||
-    strpos($request_uri, 'xmlrpc.php') !== false) {
+$tcwp_request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+if (strpos($tcwp_request_uri, '/wp-admin') !== false ||
+    strpos($tcwp_request_uri, '/wp-login') !== false ||
+    strpos($tcwp_request_uri, 'wp-activate.php') !== false ||
+    strpos($tcwp_request_uri, 'wp-signup.php') !== false ||
+    strpos($tcwp_request_uri, 'xmlrpc.php') !== false) {
     return;
 }
 
 // Fast action parameter check
 // phpcs:ignore WordPress.Security.NonceVerification -- Read-only early detection, prevents plugin loading conflicts
-$action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : (isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '');
-if ($action && in_array($action, ['activate', 'deactivate', 'activate-selected', 'deactivate-selected'], true)) {
+$tcwp_action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : (isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '');
+if ($tcwp_action && in_array($tcwp_action, ['activate', 'deactivate', 'activate-selected', 'deactivate-selected'], true)) {
     return;
 }
 
 // Check if filtering is enabled (single DB query)
 global $wpdb;
-$enabled = $wpdb->get_var(
+// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available, direct query required
+$tcwp_enabled = $wpdb->get_var(
     $wpdb->prepare(
         "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
         'tcwp_enabled'
     )
 );
 
-if ($enabled != '1') {
+if ($tcwp_enabled != '1') {
     return;
 }
 
@@ -198,6 +199,7 @@ class TCWP_Early_Filter {
     private static function get_essential_plugins() {
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available, direct query required
         $essential = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
@@ -386,6 +388,7 @@ class TCWP_Early_Filter {
 
         global $wpdb;
 
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available, direct query required
         $result = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
@@ -473,6 +476,7 @@ class TCWP_Early_Filter {
 
         // Get active plugins from database
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available, direct query required
         $active = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",

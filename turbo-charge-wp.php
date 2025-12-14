@@ -261,7 +261,9 @@ function tcwp_admin_notices() {
     if (isset($_GET['tcwp_mu_error'])) {
         ?>
         <div class="notice notice-error is-dismissible">
-            <p><strong>❌ MU-Loader installation failed:</strong> <?php echo esc_html(urldecode(sanitize_text_field(wp_unslash($_GET['tcwp_mu_error'])))); ?></p>
+            <p><strong>❌ MU-Loader installation failed:</strong> <?php
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only error message, no action taken
+            echo esc_html(urldecode(sanitize_text_field(wp_unslash($_GET['tcwp_mu_error'])))); ?></p>
             <p>Please manually copy <code>wp-content/plugins/turbo-charge-wp/mu-loader/tcwp-mu-loader.php</code> to <code>wp-content/mu-plugins/tcwp-mu-loader.php</code></p>
         </div>
         <?php

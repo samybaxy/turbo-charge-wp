@@ -250,10 +250,12 @@ class TurboChargeWP_Main {
      * Handle clear logs request
      */
     public function handle_clear_logs_request() {
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verification handled in called methods based on action type
         if (!isset($_POST['tcwp_action'])) {
             return;
         }
 
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verification handled in called methods based on action type
         $action = sanitize_text_field(wp_unslash($_POST['tcwp_action']));
 
         if ($action === 'clear_logs') {
@@ -319,8 +321,16 @@ class TurboChargeWP_Main {
      * Register settings
      */
     public function register_settings() {
-        register_setting('tcwp_settings', 'tcwp_enabled');
-        register_setting('tcwp_settings', 'tcwp_debug_enabled');
+        register_setting('tcwp_settings', 'tcwp_enabled', [
+            'type' => 'boolean',
+            'sanitize_callback' => 'rest_sanitize_boolean',
+            'default' => false,
+        ]);
+        register_setting('tcwp_settings', 'tcwp_debug_enabled', [
+            'type' => 'boolean',
+            'sanitize_callback' => 'rest_sanitize_boolean',
+            'default' => false,
+        ]);
     }
 
     /**
@@ -331,6 +341,7 @@ class TurboChargeWP_Main {
             wp_die('Access denied');
         }
 
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Tab parameter for display only, no action taken
         $active_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'settings';
 
         if ($active_tab === 'scanner') {
@@ -347,15 +358,21 @@ class TurboChargeWP_Main {
         <div class="wrap">
             <h1>Turbo Charge WP Settings</h1>
 
-            <?php if (isset($_GET['tcwp_logs_cleared']) && sanitize_text_field(wp_unslash($_GET['tcwp_logs_cleared'])) === '1'): ?>
+            <?php
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+            if (isset($_GET['tcwp_logs_cleared']) && sanitize_text_field(wp_unslash($_GET['tcwp_logs_cleared'])) === '1'): ?>
                 <div class="notice notice-success is-dismissible">
                     <p><strong>Success!</strong> Performance logs have been cleared.</p>
                 </div>
             <?php endif; ?>
 
-            <?php if (isset($_GET['tcwp_cache_rebuilt'])): ?>
+            <?php
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+            if (isset($_GET['tcwp_cache_rebuilt'])): ?>
                 <div class="notice notice-success is-dismissible">
-                    <p><strong>Success!</strong> Requirements cache rebuilt. Analyzed <?php echo intval(sanitize_text_field(wp_unslash($_GET['tcwp_cache_rebuilt']))); ?> pages.</p>
+                    <p><strong>Success!</strong> Requirements cache rebuilt. Analyzed <?php
+                    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+                    echo intval(sanitize_text_field(wp_unslash($_GET['tcwp_cache_rebuilt']))); ?> pages.</p>
                 </div>
             <?php endif; ?>
 

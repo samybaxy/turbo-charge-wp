@@ -1,8 +1,19 @@
-# Turbo Charge WP 4.0 - Production Ready
+=== Turbo Charge WP ===
+Contributors: turbochargewp
+Tags: performance, optimization, plugin-filter, speed, caching
+Requires at least: 6.4
+Tested up to: 6.9
+Stable tag: 5.1.0
+Requires PHP: 8.2
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-**Version:** 4.0.5
+Revolutionary plugin filtering - Load only essential plugins per page for 65-75% faster WordPress sites.
+
+== Description ==
+
 **Status:** Production Ready
-**License:** GPL v2 or later
+**Current Version:** 5.1.0
 
 ---
 
@@ -373,7 +384,7 @@ For issues or questions:
 
 ---
 
-**Last Updated**: December 5, 2025
-**Version**: 4.0.6
+**Last Updated**: December 14, 2025
+**Version**: 5.1.0
 **Status**: Production Ready
 **Author**: Turbo Charge WP Team
