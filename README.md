@@ -118,7 +118,6 @@ turbo-charge-wp/
 │   │   └── debug-widget.css     Debug widget styling
 │   └── js/
 │       └── debug-widget.js      Debug widget interactivity
-├── logs/                        Log directory (created on demand)
 └── README.md                    This file
 ```
 
