@@ -301,6 +301,8 @@ class TCWP_Early_Filter {
             $detected[] = 'woocommerce';
             $detected[] = 'woocommerce-stripe-gateway';
             $detected[] = 'woocommerce-gateway-stripe';
+            $detected[] = 'woocommerce-paypal-payments';
+            $detected[] = 'woo-paystack';
             $detected[] = 'jet-woo-builder';
             $detected[] = 'jet-woo-product-gallery';
 
@@ -309,6 +311,16 @@ class TCWP_Early_Filter {
                 $detected[] = 'woocommerce-memberships';
                 $detected[] = 'woocommerce-subscriptions';
                 $detected[] = 'woocommerce-smart-coupons';
+            }
+
+            // Shop pages: Load membership/restriction plugins for logged-in users
+            // (Required for member pricing, restricted products, subscription products)
+            if (($slug === 'shop' || $slug === 'product' || $slug === 'products') && self::is_user_logged_in_early()) {
+                $detected[] = 'woocommerce-memberships';
+                $detected[] = 'woocommerce-subscriptions';
+                $detected[] = 'restrict-content-pro';
+                $detected[] = 'restrict-content';
+                $detected[] = 'rcp-content-filter-utility';
             }
 
             // Shop pages commonly have media content - add media player plugins
