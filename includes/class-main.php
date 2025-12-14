@@ -256,13 +256,13 @@ class TurboChargeWP_Main {
         }
 
         // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verification handled in called methods based on action type
-        $action = sanitize_text_field(wp_unslash($_POST['tcwp_action']));
+        $action = sanitize_text_field( wp_unslash( $_POST['tcwp_action'] ) );
 
-        if ($action === 'clear_logs') {
+        if ( 'clear_logs' === $action ) {
             $this->clear_performance_logs();
         }
 
-        if ($action === 'rebuild_cache') {
+        if ( 'rebuild_cache' === $action ) {
             $this->rebuild_requirements_cache();
         }
     }
@@ -271,12 +271,12 @@ class TurboChargeWP_Main {
      * Rebuild the requirements lookup cache
      */
     public function rebuild_requirements_cache() {
-        if (!isset($_POST['tcwp_rebuild_cache_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['tcwp_rebuild_cache_nonce'])), 'tcwp_rebuild_cache_action')) {
-            wp_die('Security check failed');
+        if ( ! isset( $_POST['tcwp_rebuild_cache_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['tcwp_rebuild_cache_nonce'] ) ), 'tcwp_rebuild_cache_action' ) ) {
+            wp_die( esc_html__( 'Security check failed', 'turbo-charge-wp' ) );
         }
 
-        if (!current_user_can('manage_options')) {
-            wp_die('Access denied');
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'turbo-charge-wp' ) );
         }
 
         $count = TurboChargeWP_Requirements_Cache::rebuild_lookup_table();
@@ -289,12 +289,12 @@ class TurboChargeWP_Main {
      * Clear performance logs
      */
     public function clear_performance_logs() {
-        if (!isset($_POST['tcwp_clear_logs_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['tcwp_clear_logs_nonce'])), 'tcwp_clear_logs_action')) {
-            wp_die('Security check failed');
+        if ( ! isset( $_POST['tcwp_clear_logs_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['tcwp_clear_logs_nonce'] ) ), 'tcwp_clear_logs_action' ) ) {
+            wp_die( esc_html__( 'Security check failed', 'turbo-charge-wp' ) );
         }
 
-        if (!current_user_can('manage_options')) {
-            wp_die('Access denied');
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'turbo-charge-wp' ) );
         }
 
         delete_transient('tcwp_logs');
@@ -337,14 +337,14 @@ class TurboChargeWP_Main {
      * Render settings page
      */
     public function render_settings_page() {
-        if (!current_user_can('manage_options')) {
-            wp_die('Access denied');
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'turbo-charge-wp' ) );
         }
 
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Tab parameter for display only, no action taken
-        $active_tab = isset($_GET['tab']) ? sanitize_key(wp_unslash($_GET['tab'])) : 'settings';
+        $active_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'settings';
 
-        if ($active_tab === 'scanner') {
+        if ( 'scanner' === $active_tab ) {
             $this->render_essential_plugins_page();
             return;
         }
@@ -356,49 +356,55 @@ class TurboChargeWP_Main {
 
         ?>
         <div class="wrap">
-            <h1>Turbo Charge WP Settings</h1>
+            <h1><?php esc_html_e( 'Turbo Charge WP Settings', 'turbo-charge-wp' ); ?></h1>
 
             <?php
             // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
-            if (isset($_GET['tcwp_logs_cleared']) && sanitize_text_field(wp_unslash($_GET['tcwp_logs_cleared'])) === '1'): ?>
+            if ( isset( $_GET['tcwp_logs_cleared'] ) && '1' === sanitize_text_field( wp_unslash( $_GET['tcwp_logs_cleared'] ) ) ) : ?>
                 <div class="notice notice-success is-dismissible">
-                    <p><strong>Success!</strong> Performance logs have been cleared.</p>
+                    <p><strong><?php esc_html_e( 'Success!', 'turbo-charge-wp' ); ?></strong> <?php esc_html_e( 'Performance logs have been cleared.', 'turbo-charge-wp' ); ?></p>
                 </div>
             <?php endif; ?>
 
             <?php
             // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
-            if (isset($_GET['tcwp_cache_rebuilt'])): ?>
+            if ( isset( $_GET['tcwp_cache_rebuilt'] ) ) : ?>
                 <div class="notice notice-success is-dismissible">
-                    <p><strong>Success!</strong> Requirements cache rebuilt. Analyzed <?php
+                    <p><strong><?php esc_html_e( 'Success!', 'turbo-charge-wp' ); ?></strong>
+                    <?php
                     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
-                    echo intval(sanitize_text_field(wp_unslash($_GET['tcwp_cache_rebuilt']))); ?> pages.</p>
+                    $pages_count = intval( sanitize_text_field( wp_unslash( $_GET['tcwp_cache_rebuilt'] ) ) );
+                    printf(
+                        /* translators: %d: number of pages analyzed */
+                        esc_html__( 'Requirements cache rebuilt. Analyzed %d pages.', 'turbo-charge-wp' ),
+                        $pages_count
+                    );
+                    ?></p>
                 </div>
             <?php endif; ?>
 
             <!-- MU-Loader Status Banner -->
-            <div style="background: <?php echo $mu_loader_active ? '#d4edda' : '#f8d7da'; ?>; padding: 20px; margin: 20px 0; border-left: 4px solid <?php echo $mu_loader_active ? '#28a745' : '#dc3545'; ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+            <div style="background: <?php echo esc_attr( $mu_loader_active ? '#d4edda' : '#f8d7da' ); ?>; padding: 20px; margin: 20px 0; border-left: 4px solid <?php echo esc_attr( $mu_loader_active ? '#28a745' : '#dc3545' ); ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">
-                    <?php if ($mu_loader_active): ?>
-                        ✅ MU-Loader Active - Real Filtering Enabled
-                    <?php else: ?>
-                        ⚠️ MU-Loader Not Installed - Filtering Won't Work
+                    <?php if ( $mu_loader_active ) : ?>
+                        <?php esc_html_e( 'MU-Loader Active - Real Filtering Enabled', 'turbo-charge-wp' ); ?>
+                    <?php else : ?>
+                        <?php esc_html_e( 'MU-Loader Not Installed - Filtering Won\'t Work', 'turbo-charge-wp' ); ?>
                     <?php endif; ?>
                 </h2>
-                <?php if ($mu_loader_active): ?>
+                <?php if ( $mu_loader_active ) : ?>
                     <p style="color: #155724; margin-bottom: 0;">
-                        The MU-loader is installed and filtering plugins <strong>before</strong> they load.
-                        This is the correct setup for actual performance gains.
+                        <?php esc_html_e( 'The MU-loader is installed and filtering plugins before they load. This is the correct setup for actual performance gains.', 'turbo-charge-wp' ); ?>
                     </p>
-                <?php else: ?>
+                <?php else : ?>
                     <p style="color: #721c24;">
-                        <strong>Without the MU-loader, plugin filtering cannot work.</strong>
-                        Regular plugins load too late to filter out other plugins.
+                        <strong><?php esc_html_e( 'Without the MU-loader, plugin filtering cannot work.', 'turbo-charge-wp' ); ?></strong>
+                        <?php esc_html_e( 'Regular plugins load too late to filter out other plugins.', 'turbo-charge-wp' ); ?>
                     </p>
                     <p>
-                        <a href="<?php echo esc_url(wp_nonce_url(admin_url('options-general.php?page=tcwp-settings&tcwp_install_mu=1'), 'tcwp_install_mu')); ?>"
+                        <a href="<?php echo esc_url( wp_nonce_url( admin_url( 'options-general.php?page=tcwp-settings&tcwp_install_mu=1' ), 'tcwp_install_mu' ) ); ?>"
                            class="button button-primary">
-                            Install MU-Loader Now
+                            <?php esc_html_e( 'Install MU-Loader Now', 'turbo-charge-wp' ); ?>
                         </a>
                     </p>
                 <?php endif; ?>
@@ -406,12 +412,12 @@ class TurboChargeWP_Main {
 
             <!-- Scanner Section -->
             <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2 style="margin-top: 0;">🔍 Intelligent Plugin Scanner</h2>
-                <p>Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical (page builders, theme cores), conditional (WooCommerce, forms), or optional (analytics, SEO).</p>
-                <a href="<?php echo esc_url(admin_url('options-general.php?page=tcwp-settings&tab=scanner')); ?>" class="button button-primary button-large">
-                    Manage Essential Plugins
+                <h2 style="margin-top: 0;"><?php esc_html_e( 'Intelligent Plugin Scanner', 'turbo-charge-wp' ); ?></h2>
+                <p><?php esc_html_e( 'Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical (page builders, theme cores), conditional (WooCommerce, forms), or optional (analytics, SEO).', 'turbo-charge-wp' ); ?></p>
+                <a href="<?php echo esc_url( admin_url( 'options-general.php?page=tcwp-settings&tab=scanner' ) ); ?>" class="button button-primary button-large">
+                    <?php esc_html_e( 'Manage Essential Plugins', 'turbo-charge-wp' ); ?>
                 </a>
-                <p class="description" style="margin-top: 10px;">View scanner results, customize the essential plugins list, and check cache statistics.</p>
+                <p class="description" style="margin-top: 10px;"><?php esc_html_e( 'View scanner results, customize the essential plugins list, and check cache statistics.', 'turbo-charge-wp' ); ?></p>
             </div>
 
             <!-- Smart Content Detection -->
@@ -419,69 +425,75 @@ class TurboChargeWP_Main {
             $cache_stats = TurboChargeWP_Requirements_Cache::get_stats();
             ?>
             <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #17a2b8; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
-                <h2 style="margin-top: 0;">🎯 Smart Content Detection</h2>
-                <p>Analyzes page content (shortcodes, Elementor widgets, Gutenberg blocks) to detect which plugins each page needs. This enables O(1) lookup for maximum performance.</p>
+                <h2 style="margin-top: 0;"><?php esc_html_e( 'Smart Content Detection', 'turbo-charge-wp' ); ?></h2>
+                <p><?php esc_html_e( 'Analyzes page content (shortcodes, Elementor widgets, Gutenberg blocks) to detect which plugins each page needs. This enables O(1) lookup for maximum performance.', 'turbo-charge-wp' ); ?></p>
                 <div style="display: flex; gap: 15px; align-items: center; margin: 15px 0;">
                     <form method="post" style="display: inline;">
                         <input type="hidden" name="tcwp_action" value="rebuild_cache" />
-                        <?php wp_nonce_field('tcwp_rebuild_cache_action', 'tcwp_rebuild_cache_nonce'); ?>
-                        <button type="submit" class="button button-secondary" onclick="return confirm('This will analyze all published pages. Continue?');">
-                            🔄 Rebuild Requirements Cache
+                        <?php wp_nonce_field( 'tcwp_rebuild_cache_action', 'tcwp_rebuild_cache_nonce' ); ?>
+                        <button type="submit" class="button button-secondary" onclick="return confirm('<?php echo esc_js( __( 'This will analyze all published pages. Continue?', 'turbo-charge-wp' ) ); ?>');">
+                            <?php esc_html_e( 'Rebuild Requirements Cache', 'turbo-charge-wp' ); ?>
                         </button>
                     </form>
                     <span style="color: #666; font-size: 13px;">
-                        <strong><?php echo esc_html($cache_stats['total_entries']); ?></strong> pages cached
-                        (<?php echo esc_html($cache_stats['size_kb']); ?> KB)
+                        <?php
+                        printf(
+                            /* translators: 1: number of pages cached, 2: cache size in KB */
+                            esc_html__( '%1$s pages cached (%2$s KB)', 'turbo-charge-wp' ),
+                            '<strong>' . esc_html( $cache_stats['total_entries'] ) . '</strong>',
+                            esc_html( $cache_stats['size_kb'] )
+                        );
+                        ?>
                     </span>
                 </div>
-                <p class="description">Run this after bulk content changes or when conditional loading isn't working correctly.</p>
+                <p class="description"><?php esc_html_e( 'Run this after bulk content changes or when conditional loading isn\'t working correctly.', 'turbo-charge-wp' ); ?></p>
             </div>
 
             <form method="post" action="options.php">
-                <?php settings_fields('tcwp_settings'); ?>
+                <?php settings_fields( 'tcwp_settings' ); ?>
                 <table class="form-table">
                     <tr>
                         <th scope="row">
-                            <label for="tcwp_enabled">Enable Plugin Filtering</label>
+                            <label for="tcwp_enabled"><?php esc_html_e( 'Enable Plugin Filtering', 'turbo-charge-wp' ); ?></label>
                         </th>
                         <td>
                             <input type="checkbox" id="tcwp_enabled" name="tcwp_enabled" value="1"
-                                <?php checked($enabled); ?>
-                                <?php echo !$mu_loader_active ? 'style="opacity: 0.5;"' : ''; ?> />
-                            <?php if (!$mu_loader_active): ?>
-                                <span style="color: #dc3545; font-weight: bold;">⚠️ Install MU-Loader first!</span>
+                                <?php checked( $enabled ); ?>
+                                <?php echo ! $mu_loader_active ? 'style="opacity: 0.5;"' : ''; ?> />
+                            <?php if ( ! $mu_loader_active ) : ?>
+                                <span style="color: #dc3545; font-weight: bold;"><?php esc_html_e( 'Install MU-Loader first!', 'turbo-charge-wp' ); ?></span>
                             <?php endif; ?>
                             <p class="description">
-                                When enabled, loads only essential plugins per page for better performance.
-                                <?php if (!$mu_loader_active): ?>
-                                    <br><strong style="color: #dc3545;">Requires MU-Loader to actually work.</strong>
+                                <?php esc_html_e( 'When enabled, loads only essential plugins per page for better performance.', 'turbo-charge-wp' ); ?>
+                                <?php if ( ! $mu_loader_active ) : ?>
+                                    <br><strong style="color: #dc3545;"><?php esc_html_e( 'Requires MU-Loader to actually work.', 'turbo-charge-wp' ); ?></strong>
                                 <?php endif; ?>
                             </p>
                         </td>
                     </tr>
                     <tr>
                         <th scope="row">
-                            <label for="tcwp_debug_enabled">Enable Debug Widget</label>
+                            <label for="tcwp_debug_enabled"><?php esc_html_e( 'Enable Debug Widget', 'turbo-charge-wp' ); ?></label>
                         </th>
                         <td>
                             <input type="checkbox" id="tcwp_debug_enabled" name="tcwp_debug_enabled" value="1"
-                                <?php checked($debug_enabled); ?> />
-                            <p class="description">Show floating debug widget on frontend with performance stats (admins only).</p>
+                                <?php checked( $debug_enabled ); ?> />
+                            <p class="description"><?php esc_html_e( 'Show floating debug widget on frontend with performance stats (admins only).', 'turbo-charge-wp' ); ?></p>
                         </td>
                     </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
 
-            <?php if (!empty($logs)): ?>
+            <?php if ( ! empty( $logs ) ) : ?>
                 <hr>
-                <h2>Recent Performance Logs</h2>
+                <h2><?php esc_html_e( 'Recent Performance Logs', 'turbo-charge-wp' ); ?></h2>
                 <p class="description">
-                    These logs show which plugins were loaded on each page request.
-                    <?php if ($mu_loader_active): ?>
-                        <span style="color: #28a745;">✓ Using MU-loader for real filtering</span>
-                    <?php else: ?>
-                        <span style="color: #dc3545;">⚠️ Logs show intended filtering, not actual (MU-loader not installed)</span>
+                    <?php esc_html_e( 'These logs show which plugins were loaded on each page request.', 'turbo-charge-wp' ); ?>
+                    <?php if ( $mu_loader_active ) : ?>
+                        <span style="color: #28a745;"><?php esc_html_e( 'Using MU-loader for real filtering', 'turbo-charge-wp' ); ?></span>
+                    <?php else : ?>
+                        <span style="color: #dc3545;"><?php esc_html_e( 'Logs show intended filtering, not actual (MU-loader not installed)', 'turbo-charge-wp' ); ?></span>
                     <?php endif; ?>
                 </p>
                 <table class="wp-list-table widefat fixed striped">
@@ -582,8 +594,8 @@ class TurboChargeWP_Main {
      * Render Essential Plugins management page
      */
     public function render_essential_plugins_page() {
-        if (!current_user_can('manage_options')) {
-            wp_die('Access denied');
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'turbo-charge-wp' ) );
         }
 
         // Handle form submission

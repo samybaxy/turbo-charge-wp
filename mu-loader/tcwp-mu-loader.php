@@ -77,7 +77,7 @@ $tcwp_enabled = $wpdb->get_var(
     )
 );
 
-if ($tcwp_enabled != '1') {
+if ( '1' !== $tcwp_enabled ) {
     return;
 }
 
