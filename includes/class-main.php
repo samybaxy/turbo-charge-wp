@@ -799,16 +799,42 @@ class TurboChargeWP_Main {
                         <strong>Reduction:</strong> <?php echo esc_html($mu_data['reduction_percent']); ?>%
                     </div>
                     <hr>
-                    <div class="tcwp-debug-list">
-                        <strong>Essential (Always Load):</strong>
-                        <ul>
-                            <?php foreach (array_slice($mu_data['essential_plugins'], 0, 8) as $plugin): ?>
-                                <li><?php echo esc_html($plugin); ?></li>
-                            <?php endforeach; ?>
-                            <?php if (count($mu_data['essential_plugins']) > 8): ?>
-                                <li><em>... and <?php echo count($mu_data['essential_plugins']) - 8; ?> more</em></li>
-                            <?php endif; ?>
-                        </ul>
+                    <div class="tcwp-debug-section">
+                        <strong class="tcwp-section-title">
+                            ✓ Loaded Plugins (<?php echo esc_html(count($mu_data['loaded_plugins'])); ?>)
+                        </strong>
+                        <div class="tcwp-plugin-list-scrollable">
+                            <ul>
+                                <?php foreach ($mu_data['loaded_plugins'] as $plugin): ?>
+                                    <li><span class="tcwp-plugin-bullet">•</span> <?php echo esc_html($plugin); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="tcwp-debug-section">
+                        <strong class="tcwp-section-title tcwp-collapsible" onclick="this.parentElement.classList.toggle('expanded')">
+                            ⊖ Filtered Out (<?php echo esc_html($mu_data['filtered_count']); ?>)
+                        </strong>
+                        <div class="tcwp-plugin-list-scrollable tcwp-collapsible-content">
+                            <ul>
+                                <?php
+                                $all_plugins = get_option('active_plugins', []);
+                                $loaded_slugs = array_map(function($path) {
+                                    return explode('/', $path)[0];
+                                }, $mu_data['loaded_plugins']);
+
+                                foreach ($all_plugins as $plugin_path):
+                                    $slug = explode('/', $plugin_path)[0];
+                                    if (!in_array($slug, $loaded_slugs)):
+                                ?>
+                                    <li><span class="tcwp-plugin-bullet">•</span> <?php echo esc_html($slug); ?></li>
+                                <?php
+                                    endif;
+                                endforeach;
+                                ?>
+                            </ul>
+                        </div>
                     </div>
                 <?php else: ?>
                     <div class="tcwp-debug-stat" style="background: #f8d7da; padding: 5px; border-radius: 3px; margin-bottom: 10px;">
