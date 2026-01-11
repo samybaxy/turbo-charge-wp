@@ -101,6 +101,7 @@ class TCWP_Early_Filter {
     private static $loaded_plugins = [];
     private static $filtering_active = false;
     private static $detected_plugins = [];
+    private static $original_plugins = [];
 
     // Cache these for the entire request
     private static $lookup_table = null;
@@ -135,6 +136,7 @@ class TCWP_Early_Filter {
 
         self::$filtering_active = true;
         self::$original_count = count($plugins);
+        self::$original_plugins = $plugins;
 
         try {
             // Step 1: Get essential plugins (O(1) - cached)
@@ -290,14 +292,45 @@ class TCWP_Early_Filter {
     }
 
     /**
+     * Helper: Check if URI contains any keyword (handles nested paths)
+     *
+     * @param string $uri Full URI path
+     * @param string $slug Last segment of URI
+     * @param string $parent_slug Second-to-last segment of URI
+     * @param array  $keywords Keywords to check for
+     * @return bool True if any keyword found
+     */
+    private static function uri_contains_keyword($uri, $slug, $parent_slug, $keywords) {
+        // Check slug and parent_slug first (fastest)
+        if (in_array($slug, $keywords, true) || in_array($parent_slug, $keywords, true)) {
+            return true;
+        }
+
+        // Check if keyword appears anywhere in URI path (handles /console/shop/, etc.)
+        foreach ($keywords as $keyword) {
+            if (strpos($uri, '/' . $keyword) !== false ||
+                strpos($uri, $keyword . '/') !== false ||
+                $uri === $keyword) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Fast keyword-based detection (O(1) per keyword check)
+     *
+     * @param string $uri Full URI path (e.g., 'console/shop' or 'shop')
+     * @param string $slug Last segment of URI
+     * @param string $parent_slug Second-to-last segment of URI
      */
     private static function detect_from_keywords($uri, $slug, $parent_slug) {
         $detected = [];
 
-        // WooCommerce keywords (O(1) each)
+        // WooCommerce keywords (handles nested paths like /console/shop/, etc.)
         static $woo_keywords = ['shop', 'product', 'products', 'cart', 'checkout', 'my-account', 'order-received', 'order-pay'];
-        if (in_array($slug, $woo_keywords, true) || in_array($parent_slug, $woo_keywords, true)) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $woo_keywords)) {
             $detected[] = 'woocommerce';
             $detected[] = 'woocommerce-stripe-gateway';
             $detected[] = 'woocommerce-gateway-stripe';
@@ -305,6 +338,7 @@ class TCWP_Early_Filter {
             $detected[] = 'woo-paystack';
             $detected[] = 'jet-woo-builder';
             $detected[] = 'jet-woo-product-gallery';
+            $detected[] = 'jet-smart-filters'; // CRITICAL FIX: Required for category filters and search widgets on shop pages
 
             // Additional for checkout/cart
             if ($slug === 'checkout' || $slug === 'cart') {
@@ -315,7 +349,10 @@ class TCWP_Early_Filter {
 
             // Shop pages: Load membership/restriction plugins for logged-in users
             // (Required for member pricing, restricted products, subscription products)
-            if (($slug === 'shop' || $slug === 'product' || $slug === 'products') && self::is_user_logged_in_early()) {
+            // Check for shop/product/products anywhere in the URI path
+            if (self::is_user_logged_in_early() &&
+                ($slug === 'shop' || $slug === 'product' || $slug === 'products' ||
+                 strpos($uri, '/shop') !== false || strpos($uri, '/product') !== false)) {
                 $detected[] = 'woocommerce-memberships';
                 $detected[] = 'woocommerce-subscriptions';
                 $detected[] = 'restrict-content-pro';
@@ -324,44 +361,53 @@ class TCWP_Early_Filter {
             }
 
             // Shop pages commonly have media content - add media player plugins
-            if ($slug === 'shop' || $slug === 'product' || $slug === 'products') {
+            // Check for shop/product/products anywhere in the URI path
+            if ($slug === 'shop' || $slug === 'product' || $slug === 'products' ||
+                strpos($uri, '/shop') !== false || strpos($uri, '/product') !== false) {
                 $detected = array_merge($detected, self::get_media_plugins());
             }
         }
 
-        // LearnPress keywords
+        // LearnPress keywords (handles nested paths)
         static $lp_keywords = ['courses', 'course', 'lessons', 'lesson', 'quiz', 'quizzes', 'instructor', 'become-instructor'];
-        if (in_array($slug, $lp_keywords, true) || in_array($parent_slug, $lp_keywords, true) || strpos($uri, '/lp-') !== false) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $lp_keywords) || strpos($uri, '/lp-') !== false) {
             $detected[] = 'learnpress';
             // Courses commonly have video content
             $detected = array_merge($detected, self::get_media_plugins());
         }
 
-        // Membership keywords
-        static $member_keywords = ['members', 'member', 'account', 'subscription', 'register', 'login', 'profile', 'dashboard'];
-        if (in_array($slug, $member_keywords, true) || in_array($parent_slug, $member_keywords, true)) {
+        // Membership keywords (handles nested paths)
+        static $member_keywords = ['members', 'member', 'account', 'subscription', 'register', 'login', 'profile', 'dashboard', 'collections'];
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $member_keywords)) {
             $detected[] = 'restrict-content-pro';
             $detected[] = 'rcp-content-filter-utility';
         }
 
-        // Affiliate keywords
+        // JetEngine keywords (handles nested paths)
+        static $jetengine_keywords = ['collections'];
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $jetengine_keywords)) {
+            $detected[] = 'jet-engine';
+            $detected[] = 'jet-style-manager';
+        }
+
+        // Affiliate keywords (handles nested paths)
         static $affiliate_keywords = ['affiliate', 'affiliates', 'referral', 'partner'];
-        if (in_array($slug, $affiliate_keywords, true)) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $affiliate_keywords)) {
             $detected[] = 'affiliatewp';
             $detected[] = 'affiliate-wp';
         }
 
-        // Form keywords
+        // Form keywords (handles nested paths)
         static $form_keywords = ['contact', 'form', 'apply', 'submit', 'booking', 'appointment', 'schedule'];
-        if (in_array($slug, $form_keywords, true)) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $form_keywords)) {
             $detected[] = 'fluentform';
             $detected[] = 'fluentformpro';
             $detected[] = 'jetformbuilder';
         }
 
-        // Blog/Archive keywords
+        // Blog/Archive keywords (handles nested paths)
         static $blog_keywords = ['blog', 'news', 'articles', 'article', 'posts'];
-        if (in_array($slug, $blog_keywords, true) || strpos($uri, '/category/') !== false || strpos($uri, '/tag/') !== false) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $blog_keywords) || strpos($uri, '/category/') !== false || strpos($uri, '/tag/') !== false) {
             $detected[] = 'jet-blog';
             $detected[] = 'jet-smart-filters';
             // Blog posts commonly have embedded videos
@@ -375,15 +421,15 @@ class TCWP_Early_Filter {
             $detected[] = 'jet-smart-filters';
         }
 
-        // Events keywords
+        // Events keywords (handles nested paths)
         static $event_keywords = ['events', 'event', 'calendar', 'tribe-events'];
-        if (in_array($slug, $event_keywords, true) || in_array($parent_slug, $event_keywords, true)) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $event_keywords)) {
             $detected[] = 'the-events-calendar';
         }
 
-        // Forum keywords
+        // Forum keywords (handles nested paths)
         static $forum_keywords = ['forums', 'forum', 'topics', 'topic', 'community', 'discussion'];
-        if (in_array($slug, $forum_keywords, true)) {
+        if (self::uri_contains_keyword($uri, $slug, $parent_slug, $forum_keywords)) {
             $detected[] = 'bbpress';
         }
 
@@ -670,6 +716,7 @@ class TCWP_Early_Filter {
             'loaded_plugins' => self::$loaded_plugins,
             'essential_plugins' => self::$essential_plugins,
             'detected_plugins' => self::$detected_plugins,
+            'original_plugins' => self::$original_plugins,
             'reduction_percent' => self::$original_count > 0
                 ? round((self::$filtered_count / self::$original_count) * 100, 1)
                 : 0

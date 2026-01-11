@@ -819,16 +819,13 @@ class TurboChargeWP_Main {
                         <div class="tcwp-plugin-list-scrollable tcwp-collapsible-content">
                             <ul>
                                 <?php
-                                $all_plugins = get_option('active_plugins', []);
-                                $loaded_slugs = array_map(function($path) {
-                                    return explode('/', $path)[0];
-                                }, $mu_data['loaded_plugins']);
+                                $all_plugins = !empty($mu_data['original_plugins']) ? $mu_data['original_plugins'] : [];
+                                $loaded_plugins = $mu_data['loaded_plugins'];
 
                                 foreach ($all_plugins as $plugin_path):
-                                    $slug = explode('/', $plugin_path)[0];
-                                    if (!in_array($slug, $loaded_slugs)):
+                                    if (!in_array($plugin_path, $loaded_plugins, true)):
                                 ?>
-                                    <li><span class="tcwp-plugin-bullet">•</span> <?php echo esc_html($slug); ?></li>
+                                    <li><span class="tcwp-plugin-bullet">•</span> <?php echo esc_html($plugin_path); ?></li>
                                 <?php
                                     endif;
                                 endforeach;
