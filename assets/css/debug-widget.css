@@ -1,6 +1,6 @@
-/* Turbo Charge WP Debug Widget Styles */
+/* Turbo Charge Debug Widget Styles */
 
-#tcwp-debug-widget {
+#tc-debug-widget {
     position: fixed;
     bottom: 20px;
     right: 20px;
@@ -10,7 +10,7 @@
     line-height: 1.4;
 }
 
-.tcwp-debug-toggle {
+.tc-debug-toggle {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 10px 15px;
@@ -22,12 +22,12 @@
     font-weight: 600;
 }
 
-.tcwp-debug-toggle:hover {
+.tc-debug-toggle:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
     transform: translateY(-2px);
 }
 
-.tcwp-debug-content {
+.tc-debug-content {
     display: none;
     background: #ffffff;
     border: 1px solid #ddd;
@@ -40,27 +40,27 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.tcwp-debug-widget.expanded .tcwp-debug-content {
+.tc-debug-widget.expanded .tc-debug-content {
     display: block;
 }
 
-.tcwp-debug-widget.expanded .tcwp-debug-toggle {
+.tc-debug-widget.expanded .tc-debug-toggle {
     border-radius: 4px 4px 0 0;
 }
 
-.tcwp-debug-stat {
+.tc-debug-stat {
     padding: 8px 0;
     border-bottom: 1px solid #eee;
     font-size: 12px;
 }
 
-.tcwp-debug-stat strong {
+.tc-debug-stat strong {
     color: #333;
     display: inline-block;
     min-width: 85px;
 }
 
-.tcwp-debug-stat.highlight {
+.tc-debug-stat.highlight {
     background: #f0f9ff;
     padding: 8px;
     border-radius: 3px;
@@ -68,52 +68,52 @@
     margin: 5px 0;
 }
 
-.tcwp-debug-stat.highlight strong {
+.tc-debug-stat.highlight strong {
     color: #0369a1;
 }
 
-.tcwp-debug-list {
+.tc-debug-list {
     margin: 10px 0;
     padding: 8px 0;
 }
 
-.tcwp-debug-list strong {
+.tc-debug-list strong {
     display: block;
     color: #333;
     margin-bottom: 5px;
     font-size: 12px;
 }
 
-.tcwp-debug-list ul {
+.tc-debug-list ul {
     list-style: none;
     margin: 0;
     padding: 0 0 0 15px;
 }
 
-.tcwp-debug-list li {
+.tc-debug-list li {
     color: #666;
     margin: 3px 0;
     font-size: 11px;
     word-break: break-word;
 }
 
-.tcwp-debug-list em {
+.tc-debug-list em {
     color: #999;
     font-style: italic;
 }
 
-.tcwp-debug-content hr {
+.tc-debug-content hr {
     margin: 8px 0;
     border: none;
     border-top: 1px solid #eee;
 }
 
 /* Debug sections with scrollable plugin lists */
-.tcwp-debug-section {
+.tc-debug-section {
     margin: 10px 0;
 }
 
-.tcwp-section-title {
+.tc-section-title {
     display: block;
     color: #333;
     margin-bottom: 8px;
@@ -121,7 +121,7 @@
     font-weight: 600;
 }
 
-.tcwp-section-title.tcwp-collapsible {
+.tc-section-title.tc-collapsible {
     cursor: pointer;
     user-select: none;
     padding: 4px;
@@ -129,11 +129,11 @@
     transition: background 0.2s ease;
 }
 
-.tcwp-section-title.tcwp-collapsible:hover {
+.tc-section-title.tc-collapsible:hover {
     background: #f5f5f5;
 }
 
-.tcwp-plugin-list-scrollable {
+.tc-plugin-list-scrollable {
     max-height: 200px;
     overflow-y: auto;
     overflow-x: hidden;
@@ -143,13 +143,13 @@
     border: 1px solid #eee;
 }
 
-.tcwp-plugin-list-scrollable ul {
+.tc-plugin-list-scrollable ul {
     list-style: none;
     margin: 0;
     padding: 0;
 }
 
-.tcwp-plugin-list-scrollable li {
+.tc-plugin-list-scrollable li {
     color: #555;
     margin: 4px 0;
     font-size: 11px;
@@ -158,77 +158,77 @@
     padding: 2px 4px;
 }
 
-.tcwp-plugin-bullet {
+.tc-plugin-bullet {
     color: #667eea;
     font-weight: bold;
     margin-right: 4px;
 }
 
 /* Collapsible content */
-.tcwp-collapsible-content {
+.tc-collapsible-content {
     display: block;
     max-height: 200px;
     transition: max-height 0.3s ease, opacity 0.3s ease;
 }
 
-.tcwp-debug-section:not(.expanded) .tcwp-collapsible-content {
+.tc-debug-section:not(.expanded) .tc-collapsible-content {
     display: none;
     max-height: 0;
     opacity: 0;
 }
 
-.tcwp-debug-section.expanded .tcwp-collapsible-content {
+.tc-debug-section.expanded .tc-collapsible-content {
     display: block;
     max-height: 200px;
     opacity: 1;
 }
 
 /* Scrollbar for plugin lists */
-.tcwp-plugin-list-scrollable::-webkit-scrollbar {
+.tc-plugin-list-scrollable::-webkit-scrollbar {
     width: 5px;
 }
 
-.tcwp-plugin-list-scrollable::-webkit-scrollbar-track {
+.tc-plugin-list-scrollable::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 3px;
 }
 
-.tcwp-plugin-list-scrollable::-webkit-scrollbar-thumb {
+.tc-plugin-list-scrollable::-webkit-scrollbar-thumb {
     background: #667eea;
     border-radius: 3px;
 }
 
-.tcwp-plugin-list-scrollable::-webkit-scrollbar-thumb:hover {
+.tc-plugin-list-scrollable::-webkit-scrollbar-thumb:hover {
     background: #764ba2;
 }
 
 /* Scrollbar styling for debug content */
-.tcwp-debug-content::-webkit-scrollbar {
+.tc-debug-content::-webkit-scrollbar {
     width: 6px;
 }
 
-.tcwp-debug-content::-webkit-scrollbar-track {
+.tc-debug-content::-webkit-scrollbar-track {
     background: #f1f1f1;
     border-radius: 3px;
 }
 
-.tcwp-debug-content::-webkit-scrollbar-thumb {
+.tc-debug-content::-webkit-scrollbar-thumb {
     background: #667eea;
     border-radius: 3px;
 }
 
-.tcwp-debug-content::-webkit-scrollbar-thumb:hover {
+.tc-debug-content::-webkit-scrollbar-thumb:hover {
     background: #764ba2;
 }
 
 /* Mobile responsive */
 @media (max-width: 480px) {
-    #tcwp-debug-widget {
+    #tc-debug-widget {
         bottom: 10px;
         right: 10px;
     }
 
-    .tcwp-debug-content {
+    .tc-debug-content {
         max-width: calc(100vw - 40px);
         max-height: 400px;
     }

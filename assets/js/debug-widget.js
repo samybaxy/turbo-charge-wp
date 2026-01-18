@@ -1,15 +1,15 @@
 /**
- * Turbo Charge WP Debug Widget
+ * Turbo Charge Debug Widget
  */
 
 (function () {
     'use strict';
 
     document.addEventListener('DOMContentLoaded', function () {
-        const widget = document.getElementById('tcwp-debug-widget');
+        const widget = document.getElementById('tc-debug-widget');
         if (!widget) return;
 
-        const toggle = widget.querySelector('.tcwp-debug-toggle');
+        const toggle = widget.querySelector('.tc-debug-toggle');
         if (!toggle) return;
 
         // Toggle widget expansion

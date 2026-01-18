@@ -1,6 +1,6 @@
 <?php
 /**
- * Turbo Charge WP - MU-Plugin Loader (High Performance Edition)
+ * Turbo Charge - MU-Plugin Loader (High Performance Edition)
  *
  * This file MUST be placed in wp-content/mu-plugins/ to work.
  * It intercepts plugin loading BEFORE WordPress loads regular plugins.
@@ -12,7 +12,7 @@
  * - Minimal processing before WordPress loads
  * - Intelligent media plugin detection for rich content pages
  *
- * @package TurboChargeWP
+ * @package TurboCharge
  * @version 5.3.0
  */
 
@@ -22,9 +22,9 @@ if (!defined('ABSPATH')) {
 }
 
 // Define constants FIRST so main plugin knows MU-loader is installed
-if (!defined('TCWP_MU_LOADER_ACTIVE')) {
-    define('TCWP_MU_LOADER_ACTIVE', true);
-    define('TCWP_MU_LOADER_VERSION', '5.3.0');
+if (!defined('TC_MU_LOADER_ACTIVE')) {
+    define('TC_MU_LOADER_ACTIVE', true);
+    define('TC_MU_LOADER_VERSION', '5.3.0');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -51,33 +51,33 @@ if (defined('WP_CLI') && WP_CLI) {
 
 // Fast URI checks for admin paths (string operations only, no regex)
 // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only early detection, no actions performed
-$tcwp_request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
-if (strpos($tcwp_request_uri, '/wp-admin') !== false ||
-    strpos($tcwp_request_uri, '/wp-login') !== false ||
-    strpos($tcwp_request_uri, 'wp-activate.php') !== false ||
-    strpos($tcwp_request_uri, 'wp-signup.php') !== false ||
-    strpos($tcwp_request_uri, 'xmlrpc.php') !== false) {
+$tc_request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+if (strpos($tc_request_uri, '/wp-admin') !== false ||
+    strpos($tc_request_uri, '/wp-login') !== false ||
+    strpos($tc_request_uri, 'wp-activate.php') !== false ||
+    strpos($tc_request_uri, 'wp-signup.php') !== false ||
+    strpos($tc_request_uri, 'xmlrpc.php') !== false) {
     return;
 }
 
 // Fast action parameter check
 // phpcs:ignore WordPress.Security.NonceVerification -- Read-only early detection, prevents plugin loading conflicts
-$tcwp_action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : (isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '');
-if ($tcwp_action && in_array($tcwp_action, ['activate', 'deactivate', 'activate-selected', 'deactivate-selected'], true)) {
+$tc_action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : (isset($_POST['action']) ? sanitize_key(wp_unslash($_POST['action'])) : '');
+if ($tc_action && in_array($tc_action, ['activate', 'deactivate', 'activate-selected', 'deactivate-selected'], true)) {
     return;
 }
 
 // Check if filtering is enabled (single DB query)
 global $wpdb;
 // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available, direct query required
-$tcwp_enabled = $wpdb->get_var(
+$tc_enabled = $wpdb->get_var(
     $wpdb->prepare(
         "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-        'tcwp_enabled'
+        'tc_enabled'
     )
 );
 
-if ( '1' !== $tcwp_enabled ) {
+if ( '1' !== $tc_enabled ) {
     return;
 }
 
@@ -92,7 +92,7 @@ if ( '1' !== $tcwp_enabled ) {
  *
  * Total: O(m) per request, which is optimal since we must iterate plugins anyway
  */
-class TCWP_Early_Filter {
+class TC_Early_Filter {
 
     private static $filtered = false;
     private static $original_count = 0;
@@ -159,8 +159,8 @@ class TCWP_Early_Filter {
                 self::$detected_plugins
             ));
 
-            // Always include turbo-charge-wp
-            $required_slugs[] = 'turbo-charge-wp';
+            // Always include turbo-charge
+            $required_slugs[] = 'turbo-charge';
 
             // Step 4: Resolve dependencies (O(k) where k = required plugins)
             $to_load = self::resolve_dependencies($required_slugs, $plugins);
@@ -205,7 +205,7 @@ class TCWP_Early_Filter {
         $essential = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'tcwp_essential_plugins'
+                'tc_essential_plugins'
             )
         );
 
@@ -450,7 +450,7 @@ class TCWP_Early_Filter {
         $result = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'tcwp_url_requirements'
+                'tc_url_requirements'
             )
         );
 
@@ -709,7 +709,7 @@ class TCWP_Early_Filter {
      * Store filter data for main plugin
      */
     public static function store_filter_data() {
-        $GLOBALS['tcwp_mu_filter_data'] = [
+        $GLOBALS['tc_mu_filter_data'] = [
             'filtered' => self::$filtered,
             'original_count' => self::$original_count,
             'filtered_count' => self::$filtered_count,
@@ -742,4 +742,4 @@ class TCWP_Early_Filter {
 }
 
 // Initialize early filtering
-TCWP_Early_Filter::init();
+TC_Early_Filter::init();

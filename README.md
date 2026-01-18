@@ -1,5 +1,5 @@
-=== Turbo Charge WP ===
-Contributors: turbochargewp
+=== Turbo Charge ===
+Contributors: samybaxy
 Tags: performance, optimization, plugin-filter, speed, caching
 Requires at least: 6.4
 Tested up to: 6.9
@@ -20,10 +20,10 @@ Revolutionary plugin filtering - Load only essential plugins per page for 65-75%
 ## Quick Start
 
 ### Installation
-1. Plugin is located at `/wp-content/plugins/turbo-charge-wp/`
+1. Plugin is located at `/wp-content/plugins/turbo-charge/`
 2. Go to WordPress Admin → Plugins
-3. Find "Turbo Charge WP" and click "Activate"
-4. Go to Settings → Turbo Charge WP to enable filtering
+3. Find "Turbo Charge" and click "Activate"
+4. Go to Settings → Turbo Charge to enable filtering
 
 ### Enabling Features
 1. **Enable Plugin Filtering**: Reduces plugin load by 85-90% per page
@@ -68,7 +68,7 @@ The plugin automatically detects which plugins are needed via:
 - **Clean:** No error logging or debug output
 
 ### ✅ Admin Interface
-Settings page at **Settings → Turbo Charge WP** with:
+Settings page at **Settings → Turbo Charge** with:
 - Enable/disable plugin filtering checkbox
 - Enable/disable debug widget checkbox
 - Performance logs showing recent page loads
@@ -109,8 +109,8 @@ Works automatically with no setup needed. Just enable and it starts optimizing.
 ## Code Architecture
 
 ```
-turbo-charge-wp/
-├── turbo-charge-wp.php          Main plugin file (entry point)
+turbo-charge/
+├── turbo-charge.php          Main plugin file (entry point)
 ├── includes/
 │   └── class-main.php           Core plugin logic (700+ lines)
 ├── assets/
@@ -168,7 +168,7 @@ Result: 65-75% faster! ⚡
 ## Testing the Plugin
 
 ### Manual Testing
-1. Go to Settings → Turbo Charge WP
+1. Go to Settings → Turbo Charge
 2. Check "Enable Plugin Filtering"
 3. Check "Enable Debug Widget"
 4. Save changes
@@ -189,7 +189,7 @@ Result: 65-75% faster! ⚡
 - The system falls back to all plugins if < 3 are detected
 
 **Menu broken?**
-- Go to Settings → Turbo Charge WP
+- Go to Settings → Turbo Charge
 - Uncheck "Enable Plugin Filtering"
 - Save
 - This disables filtering while you investigate
@@ -212,9 +212,9 @@ Typical performance improvements:
 ## Settings and Options
 
 Stored in WordPress options:
-- `tcwp_enabled` (bool): Enable/disable plugin filtering
-- `tcwp_debug_enabled` (bool): Enable/disable debug widget
-- `tcwp_logs` (transient): Performance logs (expires hourly)
+- `tc_enabled` (bool): Enable/disable plugin filtering
+- `tc_debug_enabled` (bool): Enable/disable debug widget
+- `tc_logs` (transient): Performance logs (expires hourly)
 
 ## Plugin Dependencies and Hooks
 
@@ -313,7 +313,7 @@ The plugin produces **zero error logging** or debug output. It is completely cle
 
 ### Performance Data
 All performance metrics are stored and displayed in:
-- **Settings → Turbo Charge WP** → "Recent Performance Logs" table
+- **Settings → Turbo Charge** → "Recent Performance Logs" table
 - Shows: timestamp, URL, plugins loaded, plugins filtered, reduction %
 - Expandable details for each request
 - Clear button to reset logs
@@ -321,7 +321,7 @@ All performance metrics are stored and displayed in:
 ### Debugging Checklist
 
 **If pages are slow:**
-1. Go to Settings → Turbo Charge WP
+1. Go to Settings → Turbo Charge
 2. Check "Recent Performance Logs" section
 3. Look for plugins loaded count (should be 20-50, not 100+)
 4. Check reduction % (should be 65%+)
@@ -377,7 +377,7 @@ For developers and technical users:
 For issues or questions:
 - **DOCUMENTATION.md** - Complete technical documentation with examples
 - **POTENTIAL-CONCERNS.md** - Known issues and recommendations
-- **Settings → Turbo Charge WP** - View performance logs and stats
+- **Settings → Turbo Charge** - View performance logs and stats
 - **Performance data** - Review plugin load details in admin settings page
 - Disable filtering and test to isolate issues
 
@@ -386,4 +386,4 @@ For issues or questions:
 **Last Updated**: December 14, 2025
 **Version**: 5.1.0
 **Status**: Production Ready
-**Author**: Turbo Charge WP Team
+**Author**: samybaxy

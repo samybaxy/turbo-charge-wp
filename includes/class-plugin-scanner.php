@@ -1,20 +1,20 @@
 <?php
 /**
- * Intelligent Plugin Scanner for Turbo Charge WP
+ * Intelligent Plugin Scanner for Turbo Charge
  *
  * Analyzes installed plugins using heuristics to determine:
  * - Critical plugins (page builders, theme cores)
  * - Conditional plugins (WooCommerce, forms, courses)
  * - Optional plugins (analytics, SEO, utilities)
  *
- * @package TurboChargeWP
+ * @package TurboCharge
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
-class TurboChargeWP_Plugin_Scanner {
+class TurboCharge_Plugin_Scanner {
 
     /**
      * Known patterns for critical plugin categories
@@ -343,7 +343,7 @@ class TurboChargeWP_Plugin_Scanner {
      */
     public static function get_essential_plugins($force_rescan = false) {
         // Check if user has customized the list
-        $custom_essential = get_option('tcwp_essential_plugins', false);
+        $custom_essential = get_option('tc_essential_plugins', false);
 
         // If custom list exists and no force rescan, use it
         if ($custom_essential !== false && !$force_rescan) {
@@ -351,17 +351,17 @@ class TurboChargeWP_Plugin_Scanner {
         }
 
         // Check if we have cached analysis
-        $cached_analysis = get_option('tcwp_plugin_analysis', false);
+        $cached_analysis = get_option('tc_plugin_analysis', false);
 
         if ($cached_analysis === false || $force_rescan) {
             // Run new scan
             $analysis = self::scan_active_plugins();
 
             // Cache the analysis for 1 week
-            update_option('tcwp_plugin_analysis', $analysis);
+            update_option('tc_plugin_analysis', $analysis);
 
             // Mark scan as completed
-            update_option('tcwp_scan_completed', true);
+            update_option('tc_scan_completed', true);
         } else {
             $analysis = $cached_analysis;
         }
@@ -374,7 +374,7 @@ class TurboChargeWP_Plugin_Scanner {
         // Auto-save critical plugins as essential after scan
         // This ensures critical plugins are always checked by default
         if ($force_rescan || $custom_essential === false) {
-            update_option('tcwp_essential_plugins', $essential_slugs);
+            update_option('tc_essential_plugins', $essential_slugs);
         }
 
         return $essential_slugs;
@@ -386,14 +386,14 @@ class TurboChargeWP_Plugin_Scanner {
      * @return bool
      */
     public static function is_scan_completed() {
-        return get_option('tcwp_scan_completed', false);
+        return get_option('tc_scan_completed', false);
     }
 
     /**
      * Clear cached analysis and force rescan
      */
     public static function clear_cache() {
-        delete_option('tcwp_plugin_analysis');
-        delete_option('tcwp_scan_completed');
+        delete_option('tc_plugin_analysis');
+        delete_option('tc_scan_completed');
     }
 }

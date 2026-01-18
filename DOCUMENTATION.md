@@ -1,4 +1,4 @@
-# Turbo Charge WP 5.1 - Complete Documentation
+# Turbo Charge 5.1 - Complete Documentation
 
 **Version:** 5.1.0
 **Status:** Production Ready
@@ -95,7 +95,7 @@
 
 ## Quick Start
 
-### What Is Turbo Charge WP 5.1?
+### What Is Turbo Charge 5.1?
 
 **The Revolutionary Solution:**
 A WordPress performance plugin that makes sites **65-75% faster** by intelligently loading only the plugins needed for each page.
@@ -113,9 +113,9 @@ Instead of loading 120 plugins for every page, we load only 12-45 plugins for th
 
 ### Installation (3 Steps)
 
-1. **Install:** Plugin is at `/wp-content/plugins/turbo-charge-wp/`
-2. **Activate:** Go to Plugins page, click "Activate Turbo Charge WP"
-3. **Enable:** Go to Settings → Turbo Charge WP, check "Enable Plugin Filtering", save
+1. **Install:** Plugin is at `/wp-content/plugins/turbo-charge/`
+2. **Activate:** Go to Plugins page, click "Activate Turbo Charge"
+3. **Enable:** Go to Settings → Turbo Charge, check "Enable Plugin Filtering", save
 
 **That's it!** The plugin works automatically with zero configuration.
 
@@ -139,10 +139,10 @@ The plugin now automatically detects plugin dependencies using 4 intelligent met
 - ✅ Works with custom/proprietary plugins automatically
 - ✅ Auto-rebuilds on plugin activation/deactivation
 - ✅ Database storage for fast retrieval
-- ✅ Filter hook `tcwp_dependency_map` for extensibility
+- ✅ Filter hook `tc_dependency_map` for extensibility
 
 **New Admin Page:**
-- Settings → TCWP Dependencies
+- Settings → TC Dependencies
 - Visual statistics dashboard
 - Color-coded dependency relationships
 - One-click rebuild functionality
@@ -196,8 +196,8 @@ Dual-layer caching system:
 **🎯 Admin UI Improvements**
 
 New admin pages:
-- **Settings → TCWP Essential Plugins**: Scanner dashboard with checkboxes
-- **Settings → TCWP Dependencies**: Dependency statistics and relationships
+- **Settings → TC Essential Plugins**: Scanner dashboard with checkboxes
+- **Settings → TC Dependencies**: Dependency statistics and relationships
 - Visual plugin cards with scores and reasons
 - Cache statistics and management
 - One-click rescan/rebuild
@@ -207,39 +207,39 @@ New admin pages:
 New filter hooks for developers:
 ```php
 // Override essential plugins
-apply_filters('tcwp_essential_plugins', $essential);
+apply_filters('tc_essential_plugins', $essential);
 
 // Override dependency map
-apply_filters('tcwp_dependency_map', $map);
+apply_filters('tc_dependency_map', $map);
 
 // Customize URL detection
-apply_filters('tcwp_url_detected_plugins', $detected, $url);
+apply_filters('tc_url_detected_plugins', $detected, $url);
 
 // Customize content detection
-apply_filters('tcwp_content_detected_plugins', $detected, $post);
+apply_filters('tc_content_detected_plugins', $detected, $post);
 ```
 
 ### Database Schema (v5.1)
 
 **New Options:**
 ```
-tcwp_dependency_map          Auto-detected plugin dependencies (v5.1)
-tcwp_essential_plugins       User-customized essential plugins (v5.0)
-tcwp_plugin_analysis         Cached scanner results (v5.0)
-tcwp_scan_completed          Initial scan flag (v5.0)
-tcwp_url_requirements        Pre-computed URL lookups (v5.0)
-tcwp_post_type_requirements  Post type requirements (v5.0)
+tc_dependency_map          Auto-detected plugin dependencies (v5.1)
+tc_essential_plugins       User-customized essential plugins (v5.0)
+tc_plugin_analysis         Cached scanner results (v5.0)
+tc_scan_completed          Initial scan flag (v5.0)
+tc_url_requirements        Pre-computed URL lookups (v5.0)
+tc_post_type_requirements  Post type requirements (v5.0)
 ```
 
 **New Post Meta:**
 ```
-_tcwp_required_plugins       Cached content scan results
-_tcwp_cache_time            Cache timestamp
+_tc_required_plugins       Cached content scan results
+_tc_cache_time            Cache timestamp
 ```
 
 **New Transients:**
 ```
-tcwp_url_{md5_hash}         URL detection cache (1 hour)
+tc_url_{md5_hash}         URL detection cache (1 hour)
 ```
 
 ### Performance Improvements
@@ -489,8 +489,8 @@ Result: 65-75% faster ⚡
 ### File Structure (v5.1)
 
 ```
-turbo-charge-wp/
-├── turbo-charge-wp.php                 Entry point, activation hooks
+turbo-charge/
+├── turbo-charge.php                 Entry point, activation hooks
 ├── includes/
 │   ├── class-main.php                  Core logic, admin UI
 │   ├── class-dependency-detector.php   Heuristic dependency detection (NEW v5.1)
@@ -512,14 +512,14 @@ turbo-charge-wp/
 
 ### Plugin Initialization Flow
 
-**Entry Point:** `turbo-charge-wp.php:26-36`
+**Entry Point:** `turbo-charge.php:26-36`
 
 ```
 WordPress Init
     ↓
 plugins_loaded hook (priority 5)
     ↓
-TurboChargeWP_Main::init() - Singleton initialization
+TurboCharge_Main::init() - Singleton initialization
     ↓
 setup() - Component registration
     ↓
@@ -687,7 +687,7 @@ WordPress continues loading
 
 **Performance Comparison:**
 
-| Metric | Without TCWP | With TCWP | Improvement |
+| Metric | Without TC | With TC | Improvement |
 |--------|--------------|-----------|-------------|
 | TTFB | 3.5s | 1.2s | 65% faster |
 | Plugins Loaded | 120 | 12-45 | 63-90% reduction |
@@ -878,7 +878,7 @@ The debug widget is **only visible to WordPress administrators** for security re
 **Code Implementation:**
 ```php
 // In setup() - Only register hooks for admins
-if (!is_admin() && get_option('tcwp_debug_enabled', false) && current_user_can('manage_options')) {
+if (!is_admin() && get_option('tc_debug_enabled', false) && current_user_can('manage_options')) {
     add_action('wp_footer', [$this, 'render_debug_widget']);
     add_action('wp_enqueue_scripts', [$this, 'enqueue_debug_assets']);
 }
@@ -1164,7 +1164,7 @@ Speed: 2.3s (was 5.4s)
 
 **Cause:** Filtering broke something
 **Solution:**
-1. Go to Settings → Turbo Charge WP
+1. Go to Settings → Turbo Charge
 2. Uncheck "Enable Plugin Filtering"
 3. Save and reload
 4. Check debug log for errors
@@ -1236,13 +1236,13 @@ The plugin does **not** log to `/wp-content/debug.log` - it is completely clean 
 All performance metrics are available without error logs:
 
 1. **Admin Settings Page**
-   - Go to Settings → Turbo Charge WP
+   - Go to Settings → Turbo Charge
    - View "Recent Performance Logs" table
    - Shows: timestamp, URL, plugins loaded, plugins filtered, reduction %
    - Click to expand and see full plugin lists
 
 2. **Debug Widget** (Frontend)
-   - Enabled via Settings → Turbo Charge WP
+   - Enabled via Settings → Turbo Charge
    - **Admin only** - Only visible to logged-in administrators
    - Frontend users and incognito visitors cannot see it
    - Shows floating widget in bottom-right corner
@@ -1254,7 +1254,7 @@ All performance metrics are available without error logs:
 ### Troubleshooting Workflow
 
 **Step 1: Check Performance Data**
-- Go to Settings → Turbo Charge WP
+- Go to Settings → Turbo Charge
 - Review "Recent Performance Logs"
 - Check plugins loaded count and reduction %
 
@@ -1264,7 +1264,7 @@ All performance metrics are available without error logs:
 - Verify detection matched the page type
 
 **Step 3: Test Manually**
-- Visit a page with `?tcwp_debug_no_filter=1` to disable filtering
+- Visit a page with `?tc_debug_no_filter=1` to disable filtering
 - Compare behavior with filtering enabled vs disabled
 - If page works without filtering, an issue with detection logic
 
@@ -1277,7 +1277,7 @@ All performance metrics are available without error logs:
 - May need whitelist adjustment (see README.md)
 
 **Issue: Specific feature broken (form, menu, etc.)**
-- Disable filtering: Settings → Turbo Charge WP, uncheck "Enable Plugin Filtering"
+- Disable filtering: Settings → Turbo Charge, uncheck "Enable Plugin Filtering"
 - Save and test - if it works, plugin filtering is the issue
 - Review which plugins are detected as essential for that page
 
@@ -1288,7 +1288,7 @@ All performance metrics are available without error logs:
 - Widget appears in bottom-right corner
 
 **Issue: Getting 502 errors**
-- Immediately disable filtering: Settings → Turbo Charge WP, uncheck "Enable Plugin Filtering"
+- Immediately disable filtering: Settings → Turbo Charge, uncheck "Enable Plugin Filtering"
 - Save and reload the page
 - If page works after disabling, filtering was the cause
 - Check your server logs for memory or timeout issues
@@ -1310,7 +1310,7 @@ To establish performance metrics:
    - Settings page accumulates logs automatically
 
 2. **Review Statistics**
-   - Go to Settings → Turbo Charge WP
+   - Go to Settings → Turbo Charge
    - See "Recent Performance Logs" table (last 20 entries)
    - Note average reduction % per page type
 
@@ -1328,7 +1328,7 @@ To establish performance metrics:
 
 ## Conclusion
 
-**Turbo Charge WP 5.1** represents a paradigm shift in WordPress optimization. By combining intelligent dependency detection, heuristic plugin analysis, and multi-layer caching, we achieve:
+**Turbo Charge 5.1** represents a paradigm shift in WordPress optimization. By combining intelligent dependency detection, heuristic plugin analysis, and multi-layer caching, we achieve:
 
 - **85-90% plugin reduction** on most pages
 - **65-75% speed improvement** without caching
@@ -1361,9 +1361,9 @@ See **Technical Performance Analysis** section above for complete breakdown.
 
 - **README.md** - Quick start and troubleshooting guide
 - **DOCUMENTATION.md** - This file, comprehensive technical reference
-- **Settings → Turbo Charge WP** - Main settings page
-- **Settings → TCWP Essential Plugins** - Scanner dashboard
-- **Settings → TCWP Dependencies** - Dependency management
+- **Settings → Turbo Charge** - Main settings page
+- **Settings → TC Essential Plugins** - Scanner dashboard
+- **Settings → TC Dependencies** - Dependency management
 
 **Status:** Production Ready & WordPress.org Submission Ready
 **License:** GPL v2 or later
