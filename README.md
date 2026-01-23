@@ -1,19 +1,23 @@
-=== Turbo Charge ===
-Contributors: samybaxy
-Tags: performance, optimization, plugin-filter, speed, caching
-Requires at least: 6.4
-Tested up to: 6.9
-Stable tag: 5.1.0
-Requires PHP: 8.2
-License: GPLv2 or later
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
+# Turbo Charge
 
-Revolutionary plugin filtering - Load only essential plugins per page for 65-75% faster WordPress sites.
+**Revolutionary WordPress Performance Plugin**
 
-== Description ==
+Transform your WordPress site from sluggish to lightning-fast with intelligent plugin filtering technology. Turbo Charge makes your site **65-75% faster** by loading only the plugins each page actually needs—automatically, without breaking anything.
 
-**Status:** Production Ready
-**Current Version:** 5.1.0
+## Why Turbo Charge Changes Everything
+
+Imagine this: Your WordPress site has 120 plugins installed. Every single page—whether it's a blog post, shop page, or contact form—loads all 120 plugins, even though most pages only need 10-15 of them. This is the WordPress performance bottleneck nobody talks about.
+
+**Turbo Charge solves this.** Instead of loading everything everywhere, it intelligently detects what each page needs and filters out the rest. Your homepage loads 12 plugins. Your shop loads 35. Your blog posts load 18. The result? Pages that load in 1.2 seconds instead of 4.5 seconds. Sites that feel instantly responsive. Visitors who actually stick around.
+
+This isn't just another caching plugin or image optimizer. This is fundamentally rethinking how WordPress loads resources, delivering performance gains that compound with every plugin you have installed.
+
+## At a Glance
+
+**Version:** 5.1.0 (Production Ready)
+**Requirements:** WordPress 6.4+, PHP 8.2+
+**License:** GPLv2 or later
+**Performance Impact:** 65-75% faster page loads, 85-90% plugin reduction per page
 
 ---
 
@@ -267,37 +271,78 @@ Edit the detection methods in `/includes/class-main.php`:
 
 ## Changelog
 
-### v4.0.5 (Current - Production)
-- Removed unnecessary error logging
-- Cleaned up temporary debug files
-- Implemented recursion guard pattern for safe filtering
+### v5.1.0 (Current - January 2026)
+**Major Updates:**
+- ✨ **NEW:** Heuristic Dependency Detection System
+  - Automatic plugin dependency detection using 4 methods
+  - WordPress 6.5+ "Requires Plugins" header support
+  - Code analysis (class_exists, constants, hooks)
+  - Pattern matching for plugin naming conventions
+  - Database storage with auto-rebuild on plugin changes
+  - Zero manual maintenance required
+- 🔧 **IMPROVED:** Dependencies admin page with visual statistics
+- 🔧 **IMPROVED:** Auto-rebuild on plugin activation/deactivation
+- 📚 **DOCS:** Complete internationalization (i18n) for WordPress.org
+- 📚 **DOCS:** WordPress Coding Standards compliance
+- 📚 **DOCS:** WordPress.org-compliant readme.txt added
+- 🔧 **COMPLIANCE:** Removed 'wp' trademark references (January 18, 2026)
+- 🔧 **IMPROVED:** Nested path detection for complex URL structures
+- 🐛 **FIXED:** Logged-in user membership plugin loading
+- 🐛 **FIXED:** Debug widget with scrollable plugin lists
+- 🗑️ **REMOVED:** Hardcoded dependency map (replaced with heuristic detection)
+
+### v5.0.0 (December 5, 2025)
+**Performance & Intelligence:**
+- ✨ **NEW:** Intelligent Plugin Scanner with heuristic analysis
+- ✨ **NEW:** Dual-layer caching system (URL + content detection)
+- ✨ **NEW:** Admin UI for managing essential plugins
+- ✨ **NEW:** Requirements cache for O(1) lookups
+- ✨ **NEW:** Dynamic essential plugins (replaces hardcoded whitelist)
+- ✨ **NEW:** Filter hooks for extensibility
+- ✨ **NEW:** Automatic cache invalidation on content changes
+- ⚡ **PERFORMANCE:** 40-50% faster average filter time with caching
+- ⚡ **PERFORMANCE:** 60-75% faster for cached requests
+- 🔧 **IMPROVED:** More accurate essential plugin detection
+- 🔧 **IMPROVED:** Better customization options
+
+### v4.0.5 (November 2025)
+**Stability & Production:**
+- Cleaned up unnecessary error logging
+- Removed temporary debug documentation
+- Implemented recursive filtering guard pattern
+- Fixed infinite loop issues
 - Production-ready implementation
 
 ### v4.0.4
-- Added recursion guard mechanism
-- Improved hook filtering reliability
+**Safety Improvements:**
+- Added recursion guard for safe hook filtering
+- Implemented dual protection mechanisms
 - Enhanced type validation
 
 ### v4.0.3
-- Fixed critical 502 errors from infinite recursion
+**Critical Bug Fixes:**
+- Fixed critical 502 error caused by infinite recursion
 - Added array type checking
 - Improved error handling with finally blocks
 
 ### v4.0.2
-- Added Elementor diagnostics and debug widget
+**Debug Enhancements:**
+- Added Elementor widget diagnostics
+- Enhanced debug widget logging
 - Improved admin settings page
-- Enhanced performance logging
 
 ### v4.0.1
+**Compatibility Fixes:**
 - Added critical whitelist for essential plugins
-- Fixed Jet Menu rendering
+- Fixed Jet Menu rendering issues
 - Enhanced dependency detection
 
-### v4.0.0
-- Initial implementation
+### v4.0.0 (Initial Release)
+**Foundation:**
 - Core plugin filtering system
-- 50+ plugin dependency map
+- Dependency map for 50+ plugins
 - Detection and resolver algorithms
+- URL-based and content-based detection
 
 ## License
 
@@ -357,14 +402,6 @@ For developers and technical users:
   - **Performance Score: 9.2/10** - Comprehensive performance assessment
   - Full ecosystem documentation and detection methods
 
-### Known Issues & Future Enhancements
-- **POTENTIAL-CONCERNS.md** - Detailed analysis of:
-  - Edge cases and potential concerns (all low/medium priority)
-  - Recommendations for high-traffic sites
-  - Future enhancement ideas
-  - Monitoring and testing strategies
-  - Performance score breakdown (9/10 overall)
-
 ### Quick Technical Summary
 - **Time Complexity:** O(n) linear time for filtering
 - **Space Complexity:** O(p + d) - ~90KB memory overhead
@@ -375,15 +412,15 @@ For developers and technical users:
 ## Support
 
 For issues or questions:
-- **DOCUMENTATION.md** - Complete technical documentation with examples
-- **POTENTIAL-CONCERNS.md** - Known issues and recommendations
+- **DOCUMENTATION.md** - Complete technical documentation with examples (local reference)
 - **Settings → Turbo Charge** - View performance logs and stats
 - **Performance data** - Review plugin load details in admin settings page
+- **Debug widget** - Enable to see real-time plugin loading information
 - Disable filtering and test to isolate issues
 
 ---
 
-**Last Updated**: December 14, 2025
+**Last Updated**: January 23, 2026
 **Version**: 5.1.0
 **Status**: Production Ready
 **Author**: samybaxy
