@@ -1,6 +1,6 @@
 === Turbo Charge ===
 Contributors: samybaxy
-Tags: performance, optimization, plugin-filter, speed, caching, load-time, conditional-loading
+Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
 Stable tag: 5.1.0
