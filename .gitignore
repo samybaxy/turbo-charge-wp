@@ -1,0 +1,25 @@
+# Turbo Charge - Git Ignore Rules
+
+# Documentation (keep local only, not in remote repo)
+DOCUMENTATION.md
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+
+# Node modules (if any)
+node_modules/
+
+# Composer dependencies (if any)
+vendor/
