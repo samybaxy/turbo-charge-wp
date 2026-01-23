@@ -8,7 +8,7 @@ Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Revolutionary plugin filtering - Load only essential plugins per page for 65-75% faster WordPress sites.
+Load only essential plugins per page for 65-75% faster WordPress sites through intelligent filtering.
 
 == Description ==
 
@@ -17,7 +17,7 @@ Revolutionary plugin filtering - Load only essential plugins per page for 65-75%
 
 Turbo Charge makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
-Instead of loading 120 plugins for every page, we load only 12-45 plugins for the current page—**automatically, without breaking anything**.
+Instead of loading 120 plugins for every page, we load only 12-45 plugins for the current page - automatically, without breaking anything.
 
 = Key Features =
 
