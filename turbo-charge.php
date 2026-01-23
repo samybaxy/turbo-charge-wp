@@ -278,6 +278,27 @@ function tc_admin_notices() {
     }
 }
 
+// Add plugin meta links (shown in plugins list)
+add_filter( 'plugin_row_meta', 'tc_plugin_row_meta', 10, 2 );
+
+/**
+ * Add custom links to plugin row meta
+ *
+ * @param array  $links Existing meta links.
+ * @param string $file  Plugin file path.
+ * @return array Modified meta links.
+ */
+function tc_plugin_row_meta( $links, $file ) {
+    if ( TC_BASENAME === $file ) {
+        $links[] = sprintf(
+            '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+            esc_url( 'https://github.com/samybaxy/turbo-charge/issues' ),
+            esc_html__( 'Report Issues', 'turbo-charge' )
+        );
+    }
+    return $links;
+}
+
 // Handle MU-loader installation request
 add_action('admin_init', 'tc_handle_mu_install');
 
