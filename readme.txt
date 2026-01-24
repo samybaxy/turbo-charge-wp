@@ -1,5 +1,6 @@
 === Turbo Charge ===
 Contributors: samybaxy
+Donate link: https://github.com/samybaxy/turbo-charge/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
