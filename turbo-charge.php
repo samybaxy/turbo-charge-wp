@@ -5,7 +5,7 @@
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
  * Version: 5.1.0
  * Author: samybaxy
- * Author URI: https://github.com/samybaxy/turbo-charge
+ * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: turbo-charge
