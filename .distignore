@@ -1,0 +1,65 @@
+# Turbo Charge - Distribution Ignore
+# Files/folders to exclude from WordPress.org SVN/ZIP distribution
+
+# GitHub-specific files (not needed in WordPress.org distribution)
+/.git
+/.github
+.gitignore
+.distignore
+README.md
+DONATE.md
+
+# Documentation (local development only)
+DOCUMENTATION.md
+
+# Development files
+.editorconfig
+.phpcs.xml
+.phpcs.xml.dist
+phpcs.xml
+phpcs.xml.dist
+composer.json
+composer.lock
+package.json
+package-lock.json
+yarn.lock
+webpack.config.js
+Gruntfile.js
+gulpfile.js
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Testing files
+tests/
+.phpunit.result.cache
+phpunit.xml
+phpunit.xml.dist
+
+# CI/CD
+.travis.yml
+.gitlab-ci.yml
+.circleci/
+.github/
+
+# Temporary and build files
+node_modules/
+vendor/
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+.cache/
+dist/
+build/
+
+# Version control
+.svn/
+.cvs/
+.hg/
