@@ -51,53 +51,91 @@ class SHYPDR_Main {
     }
 
     /**
-     * Setup plugin hooks and components
+     * Setup plugin hooks and components.
+     *
+     * Frontend requests register only the bare minimum (debug widget when
+     * enabled). All admin UI and content-analysis hooks load lazily, and
+     * the dependency map is fetched only when an admin path actually needs
+     * it (via get_dependency_map()).
      */
     private function setup() {
-        self::$enabled = get_option('shypdr_enabled', false);
+        self::$enabled = (bool) get_option('shypdr_enabled', 0);
 
-        // Load dependency map (dynamically detected or from database)
-        self::$dependency_map = SHYPDR_Dependency_Detector::get_dependency_map();
-
-        // Setup admin hooks
         if (is_admin()) {
-            add_action('admin_menu', [$this, 'register_admin_menu']);
-            add_action('admin_init', [$this, 'register_settings']);
-            add_action('admin_init', [$this, 'handle_clear_logs_request']);
-            add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+            $this->setup_admin_hooks();
+            return;
         }
 
-        // NOTE: Plugin filtering is now handled by MU-loader (shypdr-mu-loader.php)
-        // The MU-loader runs BEFORE plugins load, which is required for actual filtering
-        // This main plugin now only handles:
-        // - Admin settings UI
-        // - Scanner functionality
-        // - Debug widget display
-        // - Logging and statistics
+        $this->setup_frontend_hooks();
+    }
 
-        // Load debug widget on frontend if enabled (admin only for security)
-        if (!is_admin() && get_option('shypdr_debug_enabled', false)) {
+    /**
+     * Register admin-only hooks. Heavy classes (dependency detector,
+     * plugin scanner, content analyzer) only autoload from here.
+     */
+    private function setup_admin_hooks() {
+        add_action('admin_menu', [$this, 'register_admin_menu']);
+        add_action('admin_init', [$this, 'register_settings']);
+        add_action('admin_init', [$this, 'handle_clear_logs_request']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+
+        // Cache invalidation
+        add_action('activated_plugin', [$this, 'handle_plugin_activation']);
+        add_action('deactivated_plugin', [$this, 'handle_plugin_deactivation']);
+        add_action('save_post', [$this, 'clear_post_cache'], 10, 1);
+        add_action('save_post', [$this, 'analyze_post_requirements'], 20, 2);
+        add_action('delete_post', [$this, 'remove_post_requirements'], 10, 1);
+    }
+
+    /**
+     * Register frontend hooks. Public visitors get only the debug widget
+     * (when explicitly enabled). Also covers REST writes (Gutenberg saves
+     * arrive over REST so save_post fires outside is_admin() too).
+     */
+    private function setup_frontend_hooks() {
+        // REST writes fire save_post outside is_admin() — keep cache
+        // invalidation working for Gutenberg / WooCommerce order creation.
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            add_action('save_post', [$this, 'clear_post_cache'], 10, 1);
+            add_action('save_post', [$this, 'analyze_post_requirements'], 20, 2);
+            add_action('delete_post', [$this, 'remove_post_requirements'], 10, 1);
+        }
+
+        if (get_option('shypdr_debug_enabled', false)) {
             add_action('wp_footer', [$this, 'render_debug_widget']);
             add_action('wp_enqueue_scripts', [$this, 'enqueue_debug_assets']);
         }
 
-        // Cache invalidation hooks
-        add_action('save_post', [$this, 'clear_post_cache'], 10, 1);
-        add_action('activated_plugin', [$this, 'handle_plugin_activation']);
-        add_action('deactivated_plugin', [$this, 'handle_plugin_deactivation']);
-
-        // Content analysis on post save (for smart plugin detection)
-        add_action('save_post', [$this, 'analyze_post_requirements'], 20, 2);
-        add_action('delete_post', [$this, 'remove_post_requirements'], 10, 1);
-
-        // Log MU-loader results for display
-        if (!is_admin() && shypdr_is_mu_loader_active()) {
+        // Runtime logging — opt-in only; default OFF so frontend never
+        // writes transients on cache-miss requests. See Phase 1.3.
+        if (get_option('shypdr_runtime_logging', false) && shypdr_is_mu_loader_active()) {
             add_action('wp_loaded', [$this, 'log_mu_filter_results']);
+        }
+
+        // Phase 2: NitroPack-complementary frontend optimizations
+        // (plugin-aware preconnect hints + pre-cache hardening). Opt-in.
+        if (get_option('shypdr_frontend_optimizations', false)) {
+            SHYPDR_Asset_Optimizer::init();
         }
     }
 
     /**
-     * Log MU-loader filter results
+     * Lazy dependency-map accessor for admin code paths.
+     */
+    private static function get_dependency_map() {
+        if (empty(self::$dependency_map)) {
+            self::$dependency_map = SHYPDR_Dependency_Detector::get_dependency_map();
+        }
+        return self::$dependency_map;
+    }
+
+    /**
+     * Log MU-loader filter results to a rotated file.
+     *
+     * Opt-in only (shypdr_runtime_logging option). Writes are appended to
+     * a JSON-lines file under wp-content/uploads/shypdr-logs/. This avoids
+     * the DB write that the previous transient-based log incurred on ~10%
+     * of frontend requests.
      */
     public function log_mu_filter_results() {
         $data = shypdr_get_mu_filter_data();
@@ -110,6 +148,19 @@ class SHYPDR_Main {
             return;
         }
 
+        $log_file = self::ensure_runtime_log_file();
+        if (!$log_file) {
+            return;
+        }
+
+        // Directional TTFB proxy — PHP wall time from request start to
+        // wp_loaded. Not full TTFB (that includes bytes-out), but enough
+        // to see whether filtering is helping or hurting in aggregate.
+        $elapsed_ms = null;
+        if (isset($_SERVER['REQUEST_TIME_FLOAT'])) {
+            $elapsed_ms = (int) round((microtime(true) - (float) $_SERVER['REQUEST_TIME_FLOAT']) * 1000);
+        }
+
         $log = [
             'timestamp' => current_time('mysql'),
             'url' => isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : 'unknown',
@@ -119,13 +170,221 @@ class SHYPDR_Main {
             'plugins_filtered' => $data['filtered_count'],
             'total_plugins' => $data['original_count'],
             'reduction_percent' => $data['reduction_percent'] . '%',
-            'loaded_list' => array_slice($data['loaded_plugins'], 0, 20),
-            'mu_loader' => true
+            'elapsed_ms' => $elapsed_ms,
+            'mu_loader' => true,
         ];
 
-        $logs = get_transient('shypdr_logs') ?: [];
-        $logs[] = $log;
-        set_transient('shypdr_logs', array_slice($logs, -50), HOUR_IN_SECONDS);
+        // Naive size-based rotation. error_log type 3 is a fast append; no
+        // lock, no DB round-trip.
+        if (file_exists($log_file) && filesize($log_file) > 100 * 1024) {
+            @rename($log_file, $log_file . '.1');
+        }
+
+        @error_log(wp_json_encode($log) . "\n", 3, $log_file);
+    }
+
+    /**
+     * Create the log directory on demand and lock it down with .htaccess +
+     * an index.html. Returns the absolute log file path, or '' if the
+     * directory can't be created.
+     */
+    private static function ensure_runtime_log_file() {
+        $upload_dir = wp_upload_dir();
+        if (!empty($upload_dir['error'])) {
+            return '';
+        }
+
+        $log_dir = trailingslashit($upload_dir['basedir']) . 'shypdr-logs';
+
+        if (!is_dir($log_dir)) {
+            if (!wp_mkdir_p($log_dir)) {
+                return '';
+            }
+            @file_put_contents($log_dir . '/.htaccess', "Require all denied\n");
+            @file_put_contents($log_dir . '/index.html', '');
+        }
+
+        return $log_dir . '/runtime.log';
+    }
+
+    /**
+     * Read the most recent log entries from the runtime log file.
+     *
+     * @param int $limit Maximum entries to return.
+     * @return array Decoded log entries, newest first.
+     */
+    public static function get_runtime_logs($limit = 20) {
+        $log_file = self::ensure_runtime_log_file();
+        if (!$log_file || !file_exists($log_file)) {
+            return [];
+        }
+
+        $lines = @file($log_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!$lines) {
+            return [];
+        }
+
+        $lines = array_slice($lines, -$limit);
+        $entries = [];
+        foreach (array_reverse($lines) as $line) {
+            $decoded = json_decode($line, true);
+            if (is_array($decoded)) {
+                $entries[] = $decoded;
+            }
+        }
+        return $entries;
+    }
+
+    /**
+     * Read up to $limit log entries and aggregate them by URL pattern.
+     *
+     * Patterns collapse the third path segment onward to '*' so that
+     * /shop/product/abc, /shop/product/def, etc. roll up to
+     * /shop/product/* in the report.
+     *
+     * @param int $limit Maximum log entries to scan.
+     * @return array {
+     *     overall:  ['samples', 'median_reduction', 'median_elapsed_ms',
+     *                'median_loaded', 'median_total'],
+     *     patterns: list of ['pattern', 'samples', 'median_reduction',
+     *                'median_elapsed_ms', 'median_loaded', 'median_total',
+     *                'sample_url', 'last_seen'],
+     *     no_savings: list of patterns whose median_reduction is 0%
+     * }
+     */
+    public static function get_runtime_aggregates($limit = 2000) {
+        $entries = self::get_runtime_logs($limit);
+        if (empty($entries)) {
+            return [
+                'overall'    => [],
+                'patterns'   => [],
+                'no_savings' => [],
+            ];
+        }
+
+        $all_reduction = [];
+        $all_elapsed = [];
+        $all_loaded = [];
+        $all_total = [];
+        $by_pattern = [];
+
+        foreach ($entries as $entry) {
+            $reduction = isset($entry['reduction_percent'])
+                ? (float) rtrim($entry['reduction_percent'], '%')
+                : 0.0;
+            $elapsed = isset($entry['elapsed_ms']) ? (int) $entry['elapsed_ms'] : null;
+            $loaded = isset($entry['plugins_loaded']) ? (int) $entry['plugins_loaded'] : 0;
+            $total = isset($entry['total_plugins']) ? (int) $entry['total_plugins'] : 0;
+            $url = $entry['url'] ?? '';
+            $pattern = self::url_to_pattern($url);
+
+            $all_reduction[] = $reduction;
+            if ($elapsed !== null) {
+                $all_elapsed[] = $elapsed;
+            }
+            $all_loaded[] = $loaded;
+            $all_total[] = $total;
+
+            if (!isset($by_pattern[$pattern])) {
+                $by_pattern[$pattern] = [
+                    'pattern'    => $pattern,
+                    'reduction'  => [],
+                    'elapsed'    => [],
+                    'loaded'     => [],
+                    'total'      => [],
+                    'sample_url' => $url,
+                    'last_seen'  => $entry['timestamp'] ?? '',
+                ];
+            }
+            $by_pattern[$pattern]['reduction'][] = $reduction;
+            if ($elapsed !== null) {
+                $by_pattern[$pattern]['elapsed'][] = $elapsed;
+            }
+            $by_pattern[$pattern]['loaded'][] = $loaded;
+            $by_pattern[$pattern]['total'][] = $total;
+
+            // Keep the most-recent timestamp (entries are newest-first).
+            if (empty($by_pattern[$pattern]['last_seen']) && !empty($entry['timestamp'])) {
+                $by_pattern[$pattern]['last_seen'] = $entry['timestamp'];
+            }
+        }
+
+        $patterns = [];
+        foreach ($by_pattern as $row) {
+            $patterns[] = [
+                'pattern'           => $row['pattern'],
+                'samples'           => count($row['reduction']),
+                'median_reduction'  => self::median($row['reduction']),
+                'median_elapsed_ms' => empty($row['elapsed']) ? null : self::median($row['elapsed']),
+                'median_loaded'     => self::median($row['loaded']),
+                'median_total'      => self::median($row['total']),
+                'sample_url'        => $row['sample_url'],
+                'last_seen'         => $row['last_seen'],
+            ];
+        }
+
+        usort($patterns, function ($a, $b) {
+            return $b['samples'] <=> $a['samples'];
+        });
+
+        $no_savings = array_values(array_filter($patterns, function ($p) {
+            return $p['median_reduction'] <= 0 && $p['samples'] >= 3;
+        }));
+
+        return [
+            'overall' => [
+                'samples'           => count($entries),
+                'median_reduction'  => self::median($all_reduction),
+                'median_elapsed_ms' => empty($all_elapsed) ? null : self::median($all_elapsed),
+                'median_loaded'     => self::median($all_loaded),
+                'median_total'      => self::median($all_total),
+            ],
+            'patterns'   => $patterns,
+            'no_savings' => $no_savings,
+        ];
+    }
+
+    /**
+     * Collapse a request URI into a roll-up pattern. Drops the query
+     * string and replaces the third path segment onward with '*'.
+     */
+    private static function url_to_pattern($url) {
+        if (empty($url) || !is_string($url)) {
+            return '/';
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if (!$path) {
+            return '/';
+        }
+
+        $segments = array_values(array_filter(explode('/', $path), 'strlen'));
+        if (count($segments) === 0) {
+            return '/';
+        }
+        if (count($segments) <= 2) {
+            return '/' . implode('/', $segments);
+        }
+        return '/' . $segments[0] . '/' . $segments[1] . '/*';
+    }
+
+    /**
+     * Median of a numeric array. Returns 0 for empty input.
+     */
+    private static function median(array $values) {
+        $values = array_values(array_filter($values, function ($v) {
+            return $v !== null;
+        }));
+        $count = count($values);
+        if ($count === 0) {
+            return 0;
+        }
+        sort($values);
+        $mid = (int) floor($count / 2);
+        if ($count % 2) {
+            return $values[$mid];
+        }
+        return ($values[$mid - 1] + $values[$mid]) / 2;
     }
 
     /**
@@ -176,18 +435,45 @@ class SHYPDR_Main {
      * @param WP_Post $post Post object
      */
     public function analyze_post_requirements($post_id, $post) {
-        // Skip revisions and autosaves
+        // Bail on revisions, autosaves, and the autosave flag.
         if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
             return;
         }
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
 
-        // Skip non-public post types
+        // Only re-analyze published content.
         if ($post->post_status !== 'publish') {
             return;
         }
 
-        // Update requirements cache
+        // Skip non-public post types — they never appear on the public
+        // frontend so they don't influence per-URL plugin requirements.
+        $type_object = get_post_type_object($post->post_type);
+        if ($type_object && empty($type_object->public)) {
+            return;
+        }
+
+        // Debounce: if content was analyzed within the last 60 seconds and
+        // post_modified hasn't moved, skip the (potentially expensive)
+        // content re-analysis. This kills the thrash on ACF / meta saves
+        // that trigger save_post without changing the post body.
+        $last_analyzed_at = (int) get_post_meta($post_id, '_shypdr_analyzed_at', true);
+        $last_analyzed_modified = (string) get_post_meta($post_id, '_shypdr_analyzed_modified', true);
+        $current_modified = (string) $post->post_modified_gmt;
+
+        if ($last_analyzed_at && (time() - $last_analyzed_at) < 60) {
+            return;
+        }
+        if ($last_analyzed_modified !== '' && $last_analyzed_modified === $current_modified) {
+            return;
+        }
+
         SHYPDR_Requirements_Cache::update_post_requirements($post_id);
+
+        update_post_meta($post_id, '_shypdr_analyzed_at', time());
+        update_post_meta($post_id, '_shypdr_analyzed_modified', $current_modified);
     }
 
     /**
@@ -272,7 +558,18 @@ class SHYPDR_Main {
             wp_die( esc_html__( 'Access denied', 'samybaxy-hyperdrive' ) );
         }
 
-        delete_transient('shypdr_logs');
+        // Wipe rotated runtime log file (transient log was retired in 6.2).
+        $upload_dir = wp_upload_dir();
+        if (empty($upload_dir['error'])) {
+            $log_dir = trailingslashit($upload_dir['basedir']) . 'shypdr-logs';
+            foreach (['runtime.log', 'runtime.log.1'] as $name) {
+                $path = $log_dir . '/' . $name;
+                if (file_exists($path)) {
+                    @unlink($path);
+                }
+            }
+        }
+        delete_transient('shypdr_logs'); // Legacy cleanup for pre-6.2 installs
         self::$log_messages = [];
 
         wp_safe_redirect(add_query_arg('shypdr_logs_cleared', '1', admin_url('options-general.php?page=shypdr-settings')));
@@ -297,14 +594,24 @@ class SHYPDR_Main {
      */
     public function register_settings() {
         register_setting('shypdr_settings', 'shypdr_enabled', [
-            'type' => 'boolean',
-            'sanitize_callback' => 'rest_sanitize_boolean',
-            'default' => false,
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
         ]);
         register_setting('shypdr_settings', 'shypdr_debug_enabled', [
-            'type' => 'boolean',
-            'sanitize_callback' => 'rest_sanitize_boolean',
-            'default' => false,
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
+        ]);
+        register_setting('shypdr_settings', 'shypdr_runtime_logging', [
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
+        ]);
+        register_setting('shypdr_settings', 'shypdr_frontend_optimizations', [
+            'type'              => 'integer',
+            'sanitize_callback' => 'absint',
+            'default'           => 0,
         ]);
     }
 
@@ -339,9 +646,16 @@ class SHYPDR_Main {
             return;
         }
 
-        $enabled = get_option('shypdr_enabled', false);
-        $debug_enabled = get_option('shypdr_debug_enabled', false);
-        $logs = get_transient('shypdr_logs') ?: [];
+        if ( 'performance' === $active_tab ) {
+            $this->render_performance_page();
+            return;
+        }
+
+        $enabled        = (int) get_option('shypdr_enabled', 0);
+        $debug_enabled  = (int) get_option('shypdr_debug_enabled', 0);
+        $runtime_logging = (int) get_option('shypdr_runtime_logging', 0);
+        $frontend_opts  = (int) get_option('shypdr_frontend_optimizations', 0);
+        $logs = self::get_runtime_logs(20);
         $mu_loader_active = shypdr_is_mu_loader_active();
 
         ?>
@@ -400,8 +714,8 @@ class SHYPDR_Main {
                 <?php endif; ?>
             </div>
 
-            <!-- Scanner & Dependencies Section -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0;">
+            <!-- Scanner / Dependencies / Performance Section -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0;">
                 <div style="background: white; padding: 20px; border-left: 4px solid #667eea; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                     <h2 style="margin-top: 0;"><?php esc_html_e( 'Intelligent Plugin Scanner', 'samybaxy-hyperdrive' ); ?></h2>
                     <p><?php esc_html_e( 'Use AI-powered heuristics to automatically detect which plugins are essential for your site. The scanner analyzes all active plugins and categorizes them as critical, conditional, or optional.', 'samybaxy-hyperdrive' ); ?></p>
@@ -415,6 +729,14 @@ class SHYPDR_Main {
                     <p><?php esc_html_e( 'View automatically detected plugin dependencies. Dependencies are discovered by analyzing plugin headers, code patterns, and ecosystem relationships.', 'samybaxy-hyperdrive' ); ?></p>
                     <a href="<?php echo esc_url( admin_url( 'options-general.php?page=shypdr-settings&tab=dependencies' ) ); ?>" class="button button-secondary button-large">
                         <?php esc_html_e( 'View Dependency Map', 'samybaxy-hyperdrive' ); ?>
+                    </a>
+                </div>
+
+                <div style="background: white; padding: 20px; border-left: 4px solid #d63638; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e( 'Performance Insights', 'samybaxy-hyperdrive' ); ?></h2>
+                    <p><?php esc_html_e( 'Aggregated stats from the runtime log: median plugin reduction per URL pattern, PHP-time proxy for TTFB, and patterns where filtering isn\'t helping.', 'samybaxy-hyperdrive' ); ?></p>
+                    <a href="<?php echo esc_url( admin_url( 'options-general.php?page=shypdr-settings&tab=performance' ) ); ?>" class="button button-secondary button-large">
+                        <?php esc_html_e( 'Open Performance Tab', 'samybaxy-hyperdrive' ); ?>
                     </a>
                 </div>
             </div>
@@ -456,8 +778,9 @@ class SHYPDR_Main {
                             <label for="shypdr_enabled"><?php esc_html_e( 'Enable Plugin Filtering', 'samybaxy-hyperdrive' ); ?></label>
                         </th>
                         <td>
+                            <input type="hidden" name="shypdr_enabled" value="0" />
                             <input type="checkbox" id="shypdr_enabled" name="shypdr_enabled" value="1"
-                                <?php checked( $enabled ); ?>
+                                <?php checked( $enabled, 1 ); ?>
                                 <?php echo ! $mu_loader_active ? 'style="opacity: 0.5;"' : ''; ?> />
                             <?php if ( ! $mu_loader_active ) : ?>
                                 <span style="color: #dc3545; font-weight: bold;"><?php esc_html_e( 'Install MU-Loader first!', 'samybaxy-hyperdrive' ); ?></span>
@@ -475,9 +798,34 @@ class SHYPDR_Main {
                             <label for="shypdr_debug_enabled"><?php esc_html_e( 'Enable Debug Widget', 'samybaxy-hyperdrive' ); ?></label>
                         </th>
                         <td>
+                            <input type="hidden" name="shypdr_debug_enabled" value="0" />
                             <input type="checkbox" id="shypdr_debug_enabled" name="shypdr_debug_enabled" value="1"
-                                <?php checked( $debug_enabled ); ?> />
+                                <?php checked( $debug_enabled, 1 ); ?> />
                             <p class="description"><?php esc_html_e( 'Show floating debug widget on frontend with performance stats (admins only).', 'samybaxy-hyperdrive' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="shypdr_runtime_logging"><?php esc_html_e( 'Runtime Logging', 'samybaxy-hyperdrive' ); ?></label>
+                        </th>
+                        <td>
+                            <input type="hidden" name="shypdr_runtime_logging" value="0" />
+                            <input type="checkbox" id="shypdr_runtime_logging" name="shypdr_runtime_logging" value="1"
+                                <?php checked( $runtime_logging, 1 ); ?> />
+                            <p class="description"><?php esc_html_e( 'Sample 10% of filtered frontend requests to a rotated log file under uploads/shypdr-logs/. Off by default — leave off in production unless diagnosing an issue (file I/O still costs a few hundred microseconds per sampled request).', 'samybaxy-hyperdrive' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="shypdr_frontend_optimizations"><?php esc_html_e( 'Frontend Optimizations', 'samybaxy-hyperdrive' ); ?></label>
+                        </th>
+                        <td>
+                            <input type="hidden" name="shypdr_frontend_optimizations" value="0" />
+                            <input type="checkbox" id="shypdr_frontend_optimizations" name="shypdr_frontend_optimizations" value="1"
+                                <?php checked( $frontend_opts, 1 ); ?> />
+                            <p class="description">
+                                <?php esc_html_e( 'Enable NitroPack-complementary tweaks: plugin-aware preconnect hints (added only when the relevant plugin actually loaded for this page), Heartbeat slowed to 60 s, and WordPress emoji detection script removed. Safe to enable alongside NitroPack / WP Rocket / LiteSpeed — these features deliberately do NOT overlap with what page-cache plugins already do.', 'samybaxy-hyperdrive' ); ?>
+                            </p>
                         </td>
                     </tr>
                 </table>
@@ -526,19 +874,27 @@ class SHYPDR_Main {
                                     <details style="font-size: 12px; cursor: pointer;">
                                         <summary style="cursor: pointer;">
                                             <?php
-                                            $sample = array_slice($log['loaded_list'] ?? [], 0, 3);
-                                            echo esc_html(implode(', ', array_map(function($p) {
-                                                return explode('/', $p)[0];
-                                            }, $sample)));
-                                            ?>...
+                                            $restricted_sample = array_slice($log['restricted_plugins'] ?? [], 0, 3);
+                                            echo esc_html('-' . implode(', -', $restricted_sample));
+                                            ?>
                                         </summary>
                                         <div style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 3px;">
-                                            <strong>Loaded Plugins:</strong>
-                                            <ul style="margin: 5px 0; padding-left: 20px;">
-                                                <?php foreach ($log['loaded_list'] ?? [] as $plugin): ?>
-                                                    <li><?php echo esc_html($plugin); ?></li>
-                                                <?php endforeach; ?>
-                                            </ul>
+                                            <?php if (!empty($log['needed_plugins'])): ?>
+                                                <strong><?php esc_html_e('Needed:', 'samybaxy-hyperdrive'); ?></strong>
+                                                <ul style="margin: 5px 0 10px; padding-left: 20px;">
+                                                    <?php foreach ($log['needed_plugins'] as $plugin): ?>
+                                                        <li><?php echo esc_html($plugin); ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php endif; ?>
+                                            <?php if (!empty($log['restricted_plugins'])): ?>
+                                                <strong><?php esc_html_e('Restricted:', 'samybaxy-hyperdrive'); ?></strong>
+                                                <ul style="margin: 5px 0; padding-left: 20px;">
+                                                    <?php foreach ($log['restricted_plugins'] as $plugin): ?>
+                                                        <li><?php echo esc_html($plugin); ?></li>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            <?php endif; ?>
                                         </div>
                                     </details>
                                 </td>
@@ -969,6 +1325,172 @@ class SHYPDR_Main {
                 </ul>
                 <p><strong><?php esc_html_e( 'Filter Hook:', 'samybaxy-hyperdrive' ); ?></strong> <?php esc_html_e( 'Developers can customize dependencies using the', 'samybaxy-hyperdrive' ); ?> <code>shypdr_dependency_map</code> <?php esc_html_e( 'filter.', 'samybaxy-hyperdrive' ); ?></p>
             </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Render the Performance Insights tab. Aggregates the rotated runtime
+     * log file and surfaces per-URL-pattern reduction + median PHP time.
+     * Admin-only; no runtime cost on the frontend.
+     */
+    public function render_performance_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Access denied', 'samybaxy-hyperdrive'));
+        }
+
+        $runtime_logging_on = (bool) get_option('shypdr_runtime_logging', false);
+        $aggregates = self::get_runtime_aggregates(2000);
+        $overall = $aggregates['overall'];
+        $patterns = $aggregates['patterns'];
+        $no_savings = $aggregates['no_savings'];
+        ?>
+        <div class="wrap">
+            <h1><?php esc_html_e( 'Samybaxy\'s Hyperdrive — Performance Insights', 'samybaxy-hyperdrive' ); ?></h1>
+
+            <a href="<?php echo esc_url( admin_url( 'options-general.php?page=shypdr-settings' ) ); ?>" class="button button-secondary" style="margin-bottom: 15px;">
+                <?php esc_html_e( '← Back to Settings', 'samybaxy-hyperdrive' ); ?>
+            </a>
+
+            <?php if ( ! $runtime_logging_on ) : ?>
+                <div class="notice notice-warning">
+                    <p>
+                        <strong><?php esc_html_e( 'Runtime logging is OFF.', 'samybaxy-hyperdrive' ); ?></strong>
+                        <?php esc_html_e( 'This tab is empty until you enable it.', 'samybaxy-hyperdrive' ); ?>
+                        <?php
+                        printf(
+                            ' <a href="%s">%s</a>',
+                            esc_url( admin_url( 'options-general.php?page=shypdr-settings#shypdr_runtime_logging' ) ),
+                            esc_html__( 'Enable on the Settings tab', 'samybaxy-hyperdrive' )
+                        );
+                        ?> <?php esc_html_e( '— samples 10% of filtered frontend requests to a rotated log file. Disable again once you\'ve gathered enough data.', 'samybaxy-hyperdrive' ); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
+
+            <?php if ( empty( $patterns ) ) : ?>
+                <div style="padding: 20px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 4px;">
+                    <p><em><?php esc_html_e( 'No log entries yet. Enable runtime logging, browse a few frontend pages, then return here.', 'samybaxy-hyperdrive' ); ?></em></p>
+                </div>
+            <?php else : ?>
+
+                <!-- Overall stats card -->
+                <div style="background: white; padding: 20px; margin: 20px 0; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e( 'Overall', 'samybaxy-hyperdrive' ); ?></h2>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px;">
+                        <div style="padding: 15px; background: #e7f3ff; border: 1px solid #b3d9ff; border-radius: 4px;">
+                            <h3 style="margin: 0 0 5px 0; color: #004085; font-size: 13px; text-transform: uppercase;"><?php esc_html_e( 'Samples', 'samybaxy-hyperdrive' ); ?></h3>
+                            <div style="font-size: 26px; font-weight: bold; color: #004085;"><?php echo esc_html( number_format_i18n( $overall['samples'] ) ); ?></div>
+                            <small><?php esc_html_e( 'Logged requests in window', 'samybaxy-hyperdrive' ); ?></small>
+                        </div>
+                        <div style="padding: 15px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+                            <h3 style="margin: 0 0 5px 0; color: #155724; font-size: 13px; text-transform: uppercase;"><?php esc_html_e( 'Median Reduction', 'samybaxy-hyperdrive' ); ?></h3>
+                            <div style="font-size: 26px; font-weight: bold; color: #155724;"><?php echo esc_html( number_format( (float) $overall['median_reduction'], 1 ) ); ?>%</div>
+                            <small><?php esc_html_e( 'Plugins skipped vs total', 'samybaxy-hyperdrive' ); ?></small>
+                        </div>
+                        <div style="padding: 15px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px;">
+                            <h3 style="margin: 0 0 5px 0; color: #856404; font-size: 13px; text-transform: uppercase;"><?php esc_html_e( 'Median PHP Time', 'samybaxy-hyperdrive' ); ?></h3>
+                            <div style="font-size: 26px; font-weight: bold; color: #856404;">
+                                <?php echo $overall['median_elapsed_ms'] !== null ? esc_html( number_format_i18n( (int) $overall['median_elapsed_ms'] ) ) . ' ms' : '—'; ?>
+                            </div>
+                            <small><?php esc_html_e( 'Request start → wp_loaded', 'samybaxy-hyperdrive' ); ?></small>
+                        </div>
+                        <div style="padding: 15px; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+                            <h3 style="margin: 0 0 5px 0; color: #721c24; font-size: 13px; text-transform: uppercase;"><?php esc_html_e( 'Median Loaded', 'samybaxy-hyperdrive' ); ?></h3>
+                            <div style="font-size: 26px; font-weight: bold; color: #721c24;">
+                                <?php echo esc_html( (int) $overall['median_loaded'] ); ?>
+                                <span style="font-size: 14px; font-weight: normal;">/ <?php echo esc_html( (int) $overall['median_total'] ); ?></span>
+                            </div>
+                            <small><?php esc_html_e( 'Plugins loaded / total active', 'samybaxy-hyperdrive' ); ?></small>
+                        </div>
+                    </div>
+                </div>
+
+                <?php if ( ! empty( $no_savings ) ) : ?>
+                    <div style="background: #fff3cd; padding: 20px; margin: 20px 0; border-left: 4px solid #f0ad4e; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                        <h2 style="margin-top: 0;"><?php esc_html_e( 'Patterns where filtering is not helping', 'samybaxy-hyperdrive' ); ?></h2>
+                        <p><?php esc_html_e( 'These URL patterns consistently show 0% reduction across 3+ samples. Filtering overhead on these pages may exceed the savings — consider adding them to the manual unrestricted list, or reviewing whether the right plugins are detected as restrictable.', 'samybaxy-hyperdrive' ); ?></p>
+                        <ul style="margin: 10px 0 0 20px;">
+                            <?php foreach ( $no_savings as $row ) : ?>
+                                <li>
+                                    <code><?php echo esc_html( $row['pattern'] ); ?></code>
+                                    <span style="color: #666;">— <?php
+                                    printf(
+                                        /* translators: 1: sample count, 2: median loaded plugins, 3: median total plugins */
+                                        esc_html__( '%1$d samples, %2$d/%3$d plugins loaded', 'samybaxy-hyperdrive' ),
+                                        (int) $row['samples'],
+                                        (int) $row['median_loaded'],
+                                        (int) $row['median_total']
+                                    );
+                                    ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Per-pattern breakdown -->
+                <h2><?php esc_html_e( 'Per URL Pattern', 'samybaxy-hyperdrive' ); ?></h2>
+                <p class="description">
+                    <?php esc_html_e( 'Patterns collapse the third path segment onward to "*", so /shop/product/abc and /shop/product/def roll up together.', 'samybaxy-hyperdrive' ); ?>
+                </p>
+                <table class="wp-list-table widefat fixed striped">
+                    <thead>
+                        <tr>
+                            <th style="width: 28%;"><?php esc_html_e( 'Pattern', 'samybaxy-hyperdrive' ); ?></th>
+                            <th style="width: 10%;"><?php esc_html_e( 'Samples', 'samybaxy-hyperdrive' ); ?></th>
+                            <th style="width: 14%;"><?php esc_html_e( 'Median Reduction', 'samybaxy-hyperdrive' ); ?></th>
+                            <th style="width: 14%;"><?php esc_html_e( 'Median PHP Time', 'samybaxy-hyperdrive' ); ?></th>
+                            <th style="width: 14%;"><?php esc_html_e( 'Loaded / Total', 'samybaxy-hyperdrive' ); ?></th>
+                            <th style="width: 20%;"><?php esc_html_e( 'Last Seen', 'samybaxy-hyperdrive' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $patterns as $row ) : ?>
+                            <?php
+                            $is_zero = $row['median_reduction'] <= 0;
+                            $reduction_color = $is_zero ? '#dc3545' : ( $row['median_reduction'] >= 30 ? '#28a745' : '#856404' );
+                            ?>
+                            <tr>
+                                <td>
+                                    <code style="font-size: 12px;"><?php echo esc_html( $row['pattern'] ); ?></code>
+                                    <?php if ( ! empty( $row['sample_url'] ) && $row['sample_url'] !== $row['pattern'] ) : ?>
+                                        <br><small style="color: #888;"><?php echo esc_html( substr( $row['sample_url'], 0, 80 ) ); ?></small>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo esc_html( (int) $row['samples'] ); ?></td>
+                                <td>
+                                    <strong style="color: <?php echo esc_attr( $reduction_color ); ?>;">
+                                        <?php echo esc_html( number_format( (float) $row['median_reduction'], 1 ) ); ?>%
+                                    </strong>
+                                </td>
+                                <td>
+                                    <?php echo $row['median_elapsed_ms'] !== null ? esc_html( (int) $row['median_elapsed_ms'] ) . ' ms' : '—'; ?>
+                                </td>
+                                <td>
+                                    <?php echo esc_html( (int) $row['median_loaded'] ); ?>
+                                    <span style="color: #888;">/ <?php echo esc_html( (int) $row['median_total'] ); ?></span>
+                                </td>
+                                <td><?php echo esc_html( $row['last_seen'] ); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+
+                <div style="margin-top: 20px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                    <form method="post" style="display: inline;">
+                        <input type="hidden" name="shypdr_action" value="clear_logs" />
+                        <?php wp_nonce_field( 'shypdr_clear_logs_action', 'shypdr_clear_logs_nonce' ); ?>
+                        <button type="submit" class="button button-secondary" onclick="return confirm('<?php echo esc_js( __( 'Clear the runtime log file?', 'samybaxy-hyperdrive' ) ); ?>');">
+                            <?php esc_html_e( 'Clear Runtime Log', 'samybaxy-hyperdrive' ); ?>
+                        </button>
+                    </form>
+                    <span style="margin-left: 15px; color: #666; font-size: 13px;">
+                        <?php esc_html_e( 'Aggregates above are computed from the last 2000 logged samples.', 'samybaxy-hyperdrive' ); ?>
+                    </span>
+                </div>
+
+            <?php endif; ?>
         </div>
         <?php
     }

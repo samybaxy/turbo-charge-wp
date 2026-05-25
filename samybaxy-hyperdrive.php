@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.0
+ * Version: 6.1.1
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,22 +21,128 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.0');
+define('SHYPDR_VERSION', '6.1.1');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
 
-// Load core components
-require_once SHYPDR_DIR . 'includes/class-dependency-detector.php';
-require_once SHYPDR_DIR . 'includes/class-plugin-scanner.php';
-require_once SHYPDR_DIR . 'includes/class-detection-cache.php';
-require_once SHYPDR_DIR . 'includes/class-content-analyzer.php';
-require_once SHYPDR_DIR . 'includes/class-requirements-cache.php';
-require_once SHYPDR_DIR . 'includes/class-main.php';
+// PSR-style autoloader for SHYPDR_* classes. Heavy admin-only classes
+// (~175 KB combined) no longer parse on every frontend request — they load
+// only when first referenced.
+spl_autoload_register(function ($class) {
+    if (strpos($class, 'SHYPDR_') !== 0) {
+        return;
+    }
+    $slug = strtolower(str_replace('_', '-', substr($class, 7)));
+    $file = SHYPDR_DIR . 'includes/class-' . $slug . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
 
-// Initialize plugin on WordPress hooks
-if (class_exists('SHYPDR_Main')) {
-    add_action('plugins_loaded', [SHYPDR_Main::class, 'init'], 5);
+// Register the runtime init hook. SHYPDR_Main loads via the autoloader
+// the first time it's referenced (when this hook fires).
+add_action('plugins_loaded', [SHYPDR_Main::class, 'init'], 5);
+
+/**
+ * Rebuild the combined MU-loader payload whenever any of its source
+ * options change. The payload is autoloaded so the MU-loader reads it
+ * from the alloptions cache on every request (zero extra DB queries).
+ *
+ * @param string $option Option name that triggered the hook.
+ */
+function shypdr_maybe_rebuild_mu_payload($option) {
+    static $sources = [
+        'shypdr_enabled',
+        'shypdr_restrictable_plugins',
+        'shypdr_restriction_rules',
+        'shypdr_url_requirements',
+        'shypdr_dependency_map',
+    ];
+
+    if (!in_array($option, $sources, true)) {
+        return;
+    }
+
+    if (class_exists('SHYPDR_Requirements_Cache')) {
+        SHYPDR_Requirements_Cache::write_mu_payload();
+    }
+}
+add_action('updated_option', 'shypdr_maybe_rebuild_mu_payload', 10, 1);
+add_action('added_option', 'shypdr_maybe_rebuild_mu_payload', 10, 1);
+
+/**
+ * Purge any active page-cache plugin when Hyperdrive's filtering CONFIG
+ * changes. Without this, cached HTML built under the previous plugin set
+ * keeps serving until natural expiry, hiding the effect of the change
+ * and leaving stale per-URL plugin assumptions in the cache.
+ *
+ * Triggered only for config options, NOT for shypdr_url_requirements —
+ * that one updates on every save_post and would thrash the cache.
+ *
+ * @param string $option Option name that triggered the hook.
+ */
+function shypdr_maybe_purge_page_cache($option) {
+    static $config_options = [
+        'shypdr_enabled',
+        'shypdr_restrictable_plugins',
+        'shypdr_restriction_rules',
+        'shypdr_dependency_map',
+    ];
+
+    if (!in_array($option, $config_options, true)) {
+        return;
+    }
+
+    shypdr_purge_page_cache();
+}
+add_action('updated_option', 'shypdr_maybe_purge_page_cache', 20, 1);
+
+/**
+ * Call known purge APIs of installed page-cache plugins. Each call is
+ * gated by function_exists / class_exists so this is a no-op when the
+ * plugin isn't installed. Errors are swallowed because we don't want a
+ * misbehaving cache plugin to abort a settings save.
+ */
+function shypdr_purge_page_cache() {
+    // NitroPack
+    if (function_exists('nitropack_sdk_purge_full_cache')) {
+        try { nitropack_sdk_purge_full_cache(); } catch (Throwable $e) {}
+    } elseif (class_exists('NitroPack\WordPress\NitroPack')) {
+        try {
+            do_action('nitropack_integration_purge_all');
+        } catch (Throwable $e) {}
+    }
+
+    // WP Rocket
+    if (function_exists('rocket_clean_domain')) {
+        try { rocket_clean_domain(); } catch (Throwable $e) {}
+    }
+
+    // LiteSpeed Cache
+    if (defined('LSCWP_V') || class_exists('LiteSpeed\Purge')) {
+        do_action('litespeed_purge_all');
+    }
+
+    // WP Super Cache
+    if (function_exists('wp_cache_clear_cache')) {
+        try { wp_cache_clear_cache(); } catch (Throwable $e) {}
+    }
+
+    // W3 Total Cache
+    if (function_exists('w3tc_pgcache_flush')) {
+        try { w3tc_pgcache_flush(); } catch (Throwable $e) {}
+    }
+
+    // Cache Enabler
+    if (class_exists('Cache_Enabler') && method_exists('Cache_Enabler', 'clear_complete_cache')) {
+        try { Cache_Enabler::clear_complete_cache(); } catch (Throwable $e) {}
+    }
+
+    // SiteGround Optimizer
+    if (function_exists('sg_cachepress_purge_cache')) {
+        try { sg_cachepress_purge_cache(); } catch (Throwable $e) {}
+    }
 }
 
 // Activation hook - Run intelligent plugin scan and install MU-loader
@@ -65,6 +171,13 @@ function shypdr_activation_handler() {
         SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
     }
 
+    // Build the combined MU-loader payload so the very first frontend
+    // request after activation already benefits from the single-option
+    // read path.
+    if (class_exists('SHYPDR_Requirements_Cache')) {
+        SHYPDR_Requirements_Cache::write_mu_payload();
+    }
+
     // Store current version for upgrade detection
     update_option('shypdr_version', SHYPDR_VERSION);
 }
@@ -89,6 +202,12 @@ function shypdr_check_version_upgrade() {
 
         // Update MU-loader to latest version
         shypdr_install_mu_loader();
+
+        // Rebuild the combined payload so upgrades from 6.1.x pick up
+        // the single-option read path on the next frontend request.
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::write_mu_payload();
+        }
 
         // Store new version
         update_option('shypdr_version', SHYPDR_VERSION);
@@ -189,7 +308,23 @@ function shypdr_deactivation_handler() {
     delete_transient('shypdr_logs');
     delete_transient('shypdr_activation_notice');
 
-    // Note: We don't remove MU-loader on deactivation, only on uninstall
+    // Tear down the MU-loader so a deactivated Hyperdrive never touches
+    // a request. WordPress always loads MU-plugins regardless of plugin
+    // activation state, so we have to physically remove the file. It is
+    // re-installed automatically by shypdr_activation_handler() when the
+    // plugin is reactivated.
+    shypdr_uninstall_mu_loader();
+
+    // Belt-and-braces: drop the MU-payload too. If the file deletion
+    // above failed for any reason (read-only mu-plugins dir, etc.) the
+    // MU-loader's safety check at the top of shypdr-mu-loader.php will
+    // see the missing payload and the missing main-plugin entry in
+    // active_plugins and bail without filtering anything.
+    delete_option('shypdr_mu_payload');
+
+    // Note: user preferences (shypdr_enabled, shypdr_essential_plugins,
+    // etc.) are intentionally preserved so a reactivation restores the
+    // previous setup. They are only removed on uninstall.
 }
 
 // Uninstall hook
@@ -202,6 +337,8 @@ function shypdr_uninstall_handler() {
     // Clean up all options
     delete_option('shypdr_enabled');
     delete_option('shypdr_debug_enabled');
+    delete_option('shypdr_runtime_logging');
+    delete_option('shypdr_frontend_optimizations');
     delete_option('shypdr_essential_plugins');
     delete_option('shypdr_plugin_analysis');
     delete_option('shypdr_scan_completed');
@@ -210,6 +347,26 @@ function shypdr_uninstall_handler() {
     delete_option('shypdr_restriction_rules');
     delete_option('shypdr_manual_restrictable');
     delete_option('shypdr_manual_unrestricted');
+    delete_option('shypdr_version');
+    delete_option('shypdr_url_requirements');
+    delete_option('shypdr_dependency_map');
+    delete_option('shypdr_circular_dependencies');
+    delete_option('shypdr_mu_payload');
+
+    // Remove runtime log directory
+    $upload_dir = wp_upload_dir();
+    if (empty($upload_dir['error'])) {
+        $log_dir = trailingslashit($upload_dir['basedir']) . 'shypdr-logs';
+        foreach (['runtime.log', 'runtime.log.1', '.htaccess', 'index.html'] as $f) {
+            $path = $log_dir . '/' . $f;
+            if (file_exists($path)) {
+                @unlink($path);
+            }
+        }
+        if (is_dir($log_dir)) {
+            @rmdir($log_dir);
+        }
+    }
 
     // Clean up transients
     delete_transient('shypdr_logs');

@@ -154,9 +154,15 @@ class SHYPDR_Detection_Cache {
         global $wpdb;
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_post_meta()
-        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key = '_shypdr_required_plugins'");
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk cache deletion, more efficient than looping delete_post_meta()
-        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key = '_shypdr_cache_time'");
+        $wpdb->query(
+            "DELETE FROM {$wpdb->postmeta}
+             WHERE meta_key IN (
+                '_shypdr_required_plugins',
+                '_shypdr_cache_time',
+                '_shypdr_analyzed_at',
+                '_shypdr_analyzed_modified'
+             )"
+        );
     }
 
     /**

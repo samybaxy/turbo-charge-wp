@@ -3,23 +3,25 @@
  * Plugin Name: Samybaxy's Hyperdrive - MU Loader
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: High-performance plugin filter using blacklist architecture. Loads everything by default, only restricts known-heavy plugins when not needed. Requires the main Samybaxy's Hyperdrive plugin.
- * Version: 6.1.0
+ * Version: 6.1.1
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
  *
  * This file MUST be placed in wp-content/mu-plugins/ to work.
  *
- * ARCHITECTURE (v6.1.0 - Blacklist Model):
+ * ARCHITECTURE (v6.2.0 - Blacklist Model + Single-Payload Read):
  * - Loads ALL plugins by default (safe)
  * - Only restricts plugins in the "restrictable set" (built by scanner)
  * - Restrictable plugins load when their URL/content conditions match
  * - Lightweight plugins, page builders, utilities always load
  * - No hardcoded plugin lists — everything is DB-driven
+ * - Yields control to page-cache plugins during warmups so cached HTML
+ *   reflects a full plugin set
  *
  * PERFORMANCE:
- * - 3 DB queries max (restrictable set, restriction rules, lookup table)
- * - All cached in statics for request lifetime
+ * - 1 get_option() read for the combined shypdr_mu_payload (autoloaded —
+ *   piggybacks on the alloptions cache; zero extra DB queries)
  * - O(1) hash lookups for URL matching
  * - O(m) plugin filtering where m = active plugins
  *
@@ -34,7 +36,7 @@ if (!defined('ABSPATH')) {
 // Define constants FIRST so main plugin knows MU-loader is installed
 if (!defined('SHYPDR_MU_LOADER_ACTIVE')) {
     define('SHYPDR_MU_LOADER_ACTIVE', true);
-    define('SHYPDR_MU_LOADER_VERSION', '6.1.0');
+    define('SHYPDR_MU_LOADER_VERSION', '6.1.1');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -81,18 +83,101 @@ if ($shypdr_action && in_array($shypdr_action, ['activate', 'deactivate', 'activ
     return;
 }
 
-// Check if filtering is enabled (single DB query)
-global $wpdb;
-// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- MU-loader runs before Options API available
-$shypdr_enabled = $wpdb->get_var(
-    $wpdb->prepare(
-        "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-        'shypdr_enabled'
-    )
+// Cache-plugin coexistence: when a page cache is mid-warmup, return the
+// full plugin set so the cached HTML reflects every feature a real visitor
+// could need. Without this, warmers and on-demand visits diverge — the
+// cache plugin warms a "minimal" page that lacks plugins the actual
+// visitor needed, causing cascading cache misses.
+$shypdr_warming = false;
+
+if (defined('WP_IMPORTING') && WP_IMPORTING) {
+    $shypdr_warming = true;
+}
+if (defined('WPSC_CACHE_PRELOAD_IN_PROGRESS') && WPSC_CACHE_PRELOAD_IN_PROGRESS) {
+    $shypdr_warming = true;
+}
+if (defined('WP_ROCKET_PRELOAD') && WP_ROCKET_PRELOAD) {
+    $shypdr_warming = true;
+}
+if (defined('LSCACHE_IS_ESI') && LSCACHE_IS_ESI) {
+    // LiteSpeed ESI requests should not be filtered.
+    $shypdr_warming = true;
+}
+
+if (!$shypdr_warming && isset($_SERVER['HTTP_USER_AGENT'])) {
+    // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only UA sniff
+    $shypdr_ua = (string) $_SERVER['HTTP_USER_AGENT'];
+    $shypdr_warming_uas = [
+        'WP Rocket/Preload',
+        'wprocket',
+        'lscache_runner',
+        'lscache_walker',
+        'lsrunner',
+        'lscache_runner',
+        'Cache Crawler',
+        'cache-warmer',
+        'Super Cache Preload',
+        'NitroPack',
+        'ShortPixel',
+    ];
+    foreach ($shypdr_warming_uas as $shypdr_needle) {
+        if (stripos($shypdr_ua, $shypdr_needle) !== false) {
+            $shypdr_warming = true;
+            break;
+        }
+    }
+}
+
+if ($shypdr_warming) {
+    return;
+}
+
+// Safety net: the MU-loader file may survive a deactivation (e.g., the
+// mu-plugins directory wasn't writable, or it was placed manually).
+// WordPress loads MU-plugins unconditionally, so without this check a
+// deactivated Hyperdrive could keep filtering plugin loads. We bail
+// unless the main plugin is currently in active_plugins (or, on
+// multisite, in active_sitewide_plugins). active_plugins is autoloaded
+// so this is a cache lookup — zero extra DB queries.
+$shypdr_main_basename = 'samybaxy-hyperdrive/samybaxy-hyperdrive.php';
+$shypdr_main_is_active = in_array(
+    $shypdr_main_basename,
+    (array) get_option('active_plugins', []),
+    true
 );
 
-if ( '1' !== $shypdr_enabled ) {
+if (!$shypdr_main_is_active && function_exists('is_multisite') && is_multisite()) {
+    $shypdr_network_plugins = (array) get_site_option('active_sitewide_plugins', []);
+    if (isset($shypdr_network_plugins[$shypdr_main_basename])) {
+        $shypdr_main_is_active = true;
+    }
+}
+
+if (!$shypdr_main_is_active) {
     return;
+}
+
+// Pull the combined MU-loader payload. It's autoloaded, so this read
+// rides on the same alloptions query WordPress was going to do anyway —
+// no extra DB hit. The five separate $wpdb->get_var() calls used in
+// 6.1.x have been collapsed into this single get_option() call.
+$shypdr_payload = get_option('shypdr_mu_payload', null);
+
+if (!is_array($shypdr_payload) || empty($shypdr_payload['enabled'])) {
+    // Legacy fallback for installs upgrading from 6.1.x before the
+    // first admin page view has rebuilt the payload. After the main
+    // plugin's upgrade hook fires once, this branch is never used.
+    $shypdr_payload_enabled = get_option('shypdr_enabled', false);
+    if (!$shypdr_payload_enabled) {
+        return;
+    }
+    $shypdr_payload = [
+        'enabled'      => true,
+        'restrictable' => get_option('shypdr_restrictable_plugins', []),
+        'rules'        => get_option('shypdr_restriction_rules', []),
+        'lookup'       => get_option('shypdr_url_requirements', []),
+        'dep_map'      => get_option('shypdr_dependency_map', []),
+    ];
 }
 
 /**
@@ -399,115 +484,35 @@ class SHYPDR_Early_Filter {
     }
 
     /**
-     * Get restrictable set from DB (cached)
+     * Inject the pre-built MU-payload so the getters skip any further
+     * DB work. Called once at the bottom of this file after the
+     * single get_option() read.
      */
+    public static function set_payload(array $payload) {
+        self::$restrictable_set = isset($payload['restrictable']) && is_array($payload['restrictable'])
+            ? $payload['restrictable'] : [];
+        self::$restriction_rules = isset($payload['rules']) && is_array($payload['rules'])
+            ? $payload['rules'] : [];
+        self::$lookup_table = isset($payload['lookup']) && is_array($payload['lookup'])
+            ? $payload['lookup'] : [];
+        self::$dependency_map = isset($payload['dep_map']) && is_array($payload['dep_map'])
+            ? $payload['dep_map'] : [];
+    }
+
     private static function get_restrictable_set() {
-        if (self::$restrictable_set !== null) {
-            return self::$restrictable_set;
-        }
-
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $result = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'shypdr_restrictable_plugins'
-            )
-        );
-
-        if ($result) {
-            self::$restrictable_set = maybe_unserialize($result);
-            if (is_array(self::$restrictable_set)) {
-                return self::$restrictable_set;
-            }
-        }
-
-        self::$restrictable_set = [];
-        return self::$restrictable_set;
+        return self::$restrictable_set ?? [];
     }
 
-    /**
-     * Get restriction rules from DB (cached)
-     */
     private static function get_restriction_rules() {
-        if (self::$restriction_rules !== null) {
-            return self::$restriction_rules;
-        }
-
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $result = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'shypdr_restriction_rules'
-            )
-        );
-
-        if ($result) {
-            self::$restriction_rules = maybe_unserialize($result);
-            if (is_array(self::$restriction_rules)) {
-                return self::$restriction_rules;
-            }
-        }
-
-        self::$restriction_rules = [];
-        return self::$restriction_rules;
+        return self::$restriction_rules ?? [];
     }
 
-    /**
-     * Get URL lookup table from DB (cached)
-     */
     private static function get_lookup_table() {
-        if (self::$lookup_table !== null) {
-            return self::$lookup_table;
-        }
-
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $result = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'shypdr_url_requirements'
-            )
-        );
-
-        if ($result) {
-            self::$lookup_table = maybe_unserialize($result);
-            if (is_array(self::$lookup_table)) {
-                return self::$lookup_table;
-            }
-        }
-
-        self::$lookup_table = [];
-        return self::$lookup_table;
+        return self::$lookup_table ?? [];
     }
 
-    /**
-     * Get dependency map from DB (cached)
-     */
     private static function get_dependency_map() {
-        if (self::$dependency_map !== null) {
-            return self::$dependency_map;
-        }
-
-        global $wpdb;
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-        $result = $wpdb->get_var(
-            $wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                'shypdr_dependency_map'
-            )
-        );
-
-        if ($result) {
-            self::$dependency_map = maybe_unserialize($result);
-            if (is_array(self::$dependency_map)) {
-                return self::$dependency_map;
-            }
-        }
-
-        self::$dependency_map = [];
-        return self::$dependency_map;
+        return self::$dependency_map ?? [];
     }
 
     /**
@@ -575,5 +580,6 @@ class SHYPDR_Early_Filter {
     }
 }
 
-// Initialize early filtering
+// Inject the pre-built payload and initialize early filtering.
+SHYPDR_Early_Filter::set_payload($shypdr_payload);
 SHYPDR_Early_Filter::init();

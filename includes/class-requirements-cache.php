@@ -23,6 +23,21 @@ class SHYPDR_Requirements_Cache {
     const LOOKUP_TABLE_OPTION = 'shypdr_url_requirements';
 
     /**
+     * Hard cap on lookup-table entries. Larger sites fall back to runtime
+     * rule-based detection (still O(1) via the restriction rules) once the
+     * cap is reached, keeping the serialized option payload well under the
+     * autoload budget.
+     */
+    const LOOKUP_MAX_ENTRIES = 1500;
+
+    /**
+     * Combined autoloaded payload consumed by the MU-loader. Replaces five
+     * separate direct DB reads with one cached alloptions hit.
+     */
+    const MU_PAYLOAD_OPTION = 'shypdr_mu_payload';
+    const MU_PAYLOAD_VERSION = 1;
+
+    /**
      * Option name for post type requirements
      */
     const POST_TYPE_OPTION = 'shypdr_post_type_requirements';
@@ -69,19 +84,31 @@ class SHYPDR_Requirements_Cache {
 
         $required = SHYPDR_Content_Analyzer::analyze_post($post_id);
 
-        // Update the lookup table atomically
+        // Update the lookup table atomically.
         $table = get_option(self::LOOKUP_TABLE_OPTION, []);
-        $table[$post->post_name] = $required;
 
-        // Also store by ID for numeric lookups
+        // Move-to-end semantics: drop any existing entries for this post
+        // before re-inserting so this post becomes "most recent" in PHP's
+        // insertion-ordered array.
+        unset(
+            $table[$post->post_name],
+            $table['id:' . $post_id]
+        );
+
+        $table[$post->post_name] = $required;
         $table['id:' . $post_id] = $required;
 
-        // If it's a page, also store by full path
         if ($post->post_type === 'page') {
             $path = get_page_uri($post);
             if ($path && $path !== $post->post_name) {
+                unset($table['path:' . $path]);
                 $table['path:' . $path] = $required;
             }
+        }
+
+        // FIFO eviction by insertion order — oldest entries fall off first.
+        if (count($table) > self::LOOKUP_MAX_ENTRIES) {
+            $table = array_slice($table, -self::LOOKUP_MAX_ENTRIES, null, true);
         }
 
         return update_option(self::LOOKUP_TABLE_OPTION, $table, false);
@@ -137,16 +164,24 @@ class SHYPDR_Requirements_Cache {
         $table = [];
         $count = 0;
 
-        // Get all published posts and pages
+        // Cap by post count so the resulting serialized blob stays within
+        // the autoload budget. Sites with more posts fall back to runtime
+        // rule-based detection for the unindexed pages.
+        $post_cap = (int) floor(self::LOOKUP_MAX_ENTRIES / 3);
+
+        // Get most-recently-modified published posts.
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Admin-only bulk rebuild operation, cache is being built
         $posts = $wpdb->get_results(
-            "SELECT ID, post_name, post_type
-             FROM {$wpdb->posts}
-             WHERE post_status = 'publish'
-             AND post_name != ''
-             AND post_type IN ('post', 'page', 'product', 'lp_course')
-             ORDER BY ID ASC
-             LIMIT 500",
+            $wpdb->prepare(
+                "SELECT ID, post_name, post_type
+                 FROM {$wpdb->posts}
+                 WHERE post_status = 'publish'
+                 AND post_name != ''
+                 AND post_type IN ('post', 'page', 'product', 'lp_course')
+                 ORDER BY post_modified_gmt DESC
+                 LIMIT %d",
+                $post_cap
+            ),
             ARRAY_A
         );
 
@@ -180,6 +215,12 @@ class SHYPDR_Requirements_Cache {
                     $table['id:' . $front_page_id] = $front_required;
                 }
             }
+        }
+
+        // Final safety cap — if we somehow over-shot (e.g., explicit Woo
+        // pages pushed past the limit), trim from the front.
+        if (count($table) > self::LOOKUP_MAX_ENTRIES) {
+            $table = array_slice($table, -self::LOOKUP_MAX_ENTRIES, null, true);
         }
 
         update_option(self::LOOKUP_TABLE_OPTION, $table, false);
@@ -259,6 +300,49 @@ class SHYPDR_Requirements_Cache {
      */
     const RESTRICTABLE_OPTION = 'shypdr_restrictable_plugins';
     const RESTRICTION_RULES_OPTION = 'shypdr_restriction_rules';
+
+    /**
+     * Build and persist the combined MU-loader payload as a single
+     * autoloaded option. The MU-loader reads ONLY this option, which means
+     * it costs zero additional DB queries (it rides on the alloptions
+     * cache that WordPress loads anyway).
+     *
+     * Call this from any path that mutates the individual source options
+     * (rebuild_lookup_table, rebuild_restrictable_data, rebuild_dependency_map,
+     * update_post_requirements, and the shypdr_enabled toggle).
+     *
+     * @return bool Success
+     */
+    public static function write_mu_payload() {
+        $payload = [
+            'v'            => self::MU_PAYLOAD_VERSION,
+            'enabled'      => (bool) get_option('shypdr_enabled', false),
+            'restrictable' => get_option(self::RESTRICTABLE_OPTION, []),
+            'rules'        => get_option(self::RESTRICTION_RULES_OPTION, []),
+            'lookup'       => get_option(self::LOOKUP_TABLE_OPTION, []),
+            'dep_map'      => get_option('shypdr_dependency_map', []),
+        ];
+
+        // Sanity coercion — every key must be the expected type so the
+        // MU-loader can trust the payload without re-validating.
+        foreach (['restrictable', 'rules', 'lookup', 'dep_map'] as $k) {
+            if (!is_array($payload[$k])) {
+                $payload[$k] = [];
+            }
+        }
+
+        // Final autoload safety cap on the lookup blob.
+        if (count($payload['lookup']) > self::LOOKUP_MAX_ENTRIES) {
+            $payload['lookup'] = array_slice(
+                $payload['lookup'],
+                -self::LOOKUP_MAX_ENTRIES,
+                null,
+                true
+            );
+        }
+
+        return update_option(self::MU_PAYLOAD_OPTION, $payload, true);
+    }
 
     /**
      * Get the restrictable plugins set (for MU-loader)

@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.0
+Stable tag: 6.1.1
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.0
+**Current Version:** 6.1.1
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -82,6 +82,41 @@ The plugin automatically detects which plugins are needed via:
 * **Memory savings:** 40-60% less memory usage
 * **Filter overhead:** < 2.5ms per request
 * **Server cost reduction:** 60-70% for same traffic
+
+= What's New in v6.1.1 =
+
+🚀 **Consolidated production-validated patch release** — battle-tested on a 154-plugin WooCommerce / membership / LMS site (see PERFORMANCE-AUDIT-2026.md). Folds in every internal iteration since 6.1.0 into one stable release.
+
+**⚡ MU-loader overhead removed (Phase 1):**
+
+* **5 → 1 DB query in the MU-loader.** The five separate `$wpdb->get_var()` calls per cache-miss request are collapsed into a single autoloaded `shypdr_mu_payload` option that piggybacks on the alloptions cache.
+* **~110 KB less PHP parsed per frontend request.** Admin-only classes (`SHYPDR_Plugin_Scanner`, `SHYPDR_Dependency_Detector`, `SHYPDR_Content_Analyzer`) now load lazily via an autoloader instead of being `require_once`'d on every request.
+* **Frontend transient log writes removed.** The 10%-sampled `set_transient()` call on `wp_loaded` was writing to `wp_options` on real visitor traffic. Logging is now opt-in (`Runtime Logging` setting, default OFF) and writes to a rotated file under `uploads/shypdr-logs/`.
+* **save_post analysis debounced.** Re-analysis is skipped for revisions, autosaves, non-public post types, unchanged `post_modified`, and within 60 s of the last analysis — kills the thrash on ACF / meta-only saves.
+* **Lookup table capped + LRU-evicted.** `shypdr_url_requirements` is now bounded at 1500 entries (~500 posts) so the serialized blob stays within a healthy autoload budget.
+* **Cache-plugin coexistence.** The MU-loader now detects WP Rocket / LiteSpeed / WP Super Cache / NitroPack / ShortPixel preloaders and bows out, so cached HTML reflects the full plugin set instead of diverging from real-visitor pages.
+
+**🎯 NitroPack-complementary frontend optimizations (Phase 2):**
+
+* **Plugin-aware preconnect hints.** Hyperdrive already knows which plugins actually loaded for the current page — so it can preconnect to `js.stripe.com` only on checkout, `player.vimeo.com` only when Presto Player is active for the page, etc. Generic cache-plugin hints add the same origins to every page; this one is selective.
+* **Pre-cache hardening.** WordPress Heartbeat slowed to 60 s on the frontend, emoji detection script removed. NitroPack snapshots the resulting lighter HTML once and serves it forever from cache.
+* **Page-cache purge on config change.** Toggling `shypdr_enabled` or rebuilding the restrictable set now automatically purges NitroPack, WP Rocket, LiteSpeed, WP Super Cache, W3 Total Cache, Cache Enabler, and SiteGround Optimizer (whichever is installed).
+* All Phase 2 features sit behind a single **Frontend Optimizations** toggle (default OFF on upgrade) so existing sites only opt in deliberately.
+
+**📊 Performance Insights tab (Phase 3):**
+
+* **Overall stats card.** Total samples in window, median plugin reduction, median PHP wall time (request start → wp_loaded — a directional TTFB proxy), median plugins loaded vs total.
+* **Per URL pattern breakdown.** Logged URLs collapse to patterns (`/shop/product/abc` + `/shop/product/def` → `/shop/product/*`) so similar pages roll up together.
+* **"Filtering isn't helping" callout.** Surfaces URL patterns where median reduction is 0% across 3+ samples — clear signal the filtering overhead on those pages may exceed the savings.
+* **elapsed_ms** captured per log entry via `REQUEST_TIME_FLOAT` (microsecond-cheap, no extra I/O).
+* Settings → Hyperdrive → **Performance Insights** card. Requires Runtime Logging enabled.
+
+**🛡️ Deactivation safety:**
+
+* **Deactivation removes the MU-loader file** automatically (WordPress always loads MU-plugins regardless of activation state — leaving the loader installed meant a "deactivated" Hyperdrive could still influence requests).
+* **`shypdr_mu_payload` is dropped on deactivation** so even if the mu-plugins directory is read-only and the file deletion fails, the MU-loader has nothing to act on.
+* **Safety net in the MU-loader itself.** If the file somehow survives, the MU-loader checks `active_plugins` / `active_sitewide_plugins` and bails unless the main plugin is currently active. Free check — rides the autoloaded alloptions cache.
+* User preferences (Enable Plugin Filtering, Essential Plugins, etc.) are preserved across deactivation cycles — only removed on uninstall.
 
 = What's New in v6.0.2 =
 
@@ -304,6 +339,32 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.1 - May 25, 2026 =
+🚀 Consolidated patch release validated against a 154-plugin production WooCommerce / membership / LMS site (see PERFORMANCE-AUDIT-2026.md). Folds in every internal iteration since 6.1.0 into a single stable release.
+
+**⚡ Phase 1 — MU-loader overhead removed**
+* 🔧 Improved: 5 → 1 DB query in the MU-loader. The five separate per-request `$wpdb->get_var()` calls are collapsed into a single autoloaded `shypdr_mu_payload` option that piggybacks on the alloptions cache (≈ free read).
+* 🔧 Improved: ~110 KB less PHP parsed per frontend request. Admin-only classes (Plugin Scanner, Dependency Detector, Content Analyzer) load lazily via PSR-style autoloader instead of unconditional require.
+* 🔧 Improved: Frontend transient log writes removed from cache-miss hot path; runtime logging now writes to a rotated file when explicitly enabled.
+
+**🎯 Phase 2 — Frontend optimizations that complement page-cache plugins**
+* ✨ New: Plugin-aware preconnect hints — Hyperdrive only adds `js.stripe.com` on checkout, `player.vimeo.com` on Presto pages, etc. Selective rather than generic.
+* ✨ New: Pre-cache hardening — Heartbeat slowed to 60 s on frontend, emoji detection removed so cache plugins snapshot lighter HTML once.
+* ✨ New: Automatic page-cache purge on `shypdr_enabled` toggle / restrictable rebuild. Supports NitroPack, WP Rocket, LiteSpeed, WP Super Cache, W3 Total Cache, Cache Enabler, SiteGround Optimizer.
+* 🛡️ Safety: All Phase 2 features behind a single **Frontend Optimizations** toggle (default OFF on upgrade).
+
+**📊 Phase 3 — Performance Insights tab**
+* ✨ New: Admin tab answering "is Hyperdrive actually helping?" using the rotated runtime log. Zero frontend cost.
+* ✨ New: Per-URL-pattern breakdown (median reduction %, PHP wall time, loaded/total) so similar pages collapse together.
+* ✨ New: "Filtering isn't helping" callout surfaces URL patterns where median reduction is 0% across 3+ samples.
+* 🔧 Improved: `elapsed_ms` captured per log entry via REQUEST_TIME_FLOAT (no extra I/O).
+
+**🛡️ Deactivation safety**
+* 🐛 Fixed: MU-loader file is removed on deactivation so filtering stops on the next request (WordPress always loads MU-plugins regardless of activation state).
+* 🐛 Fixed: `shypdr_mu_payload` is dropped on deactivation as a second safety net.
+* 🛡️ Safety: MU-loader self-checks `active_plugins` / `active_sitewide_plugins` and bails if the main plugin is no longer active.
+* 🔧 Improved: User preferences preserved across deactivation cycles — only removed on uninstall.
 
 = 6.1.0 - March 7, 2026 =
 🏗️ Architecture Overhaul: Whitelist to Blacklist Model
