@@ -2,6 +2,12 @@
 
 # Documentation (keep local only, not in remote repo)
 DOCUMENTATION.md
+PERFORMANCE-AUDIT-2026.md
+PRODUCTION-AUDIT.md
+
+# WP Engine system MU-plugin stray (only appears when the plugin folder
+# lives inside a Local-synced WP Engine site; never belongs in the repo)
+mu-plugin.php
 
 # SVN directory for WordPress.org deployment
 samybaxy-hyperdrive/
