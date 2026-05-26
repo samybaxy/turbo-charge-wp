@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.1
+Stable tag: 6.1.2
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.1
+**Current Version:** 6.1.2
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,19 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.2 - May 26, 2026 =
+🛡️ **Hotfix: prevent 502 Bad Gateway on activation for large-install sites**
+
+On sites with 100+ active plugins, the activation handler did synchronous file I/O (reading up to 50KB from every active plugin file for dependency detection) inside the activation HTTP request — and the post-activation admin page load did even heavier reads (up to 500KB per plugin) for the essential-plugin scanner. Both could exceed PHP-FPM timeout on managed hosts (WP Engine, Kinsta, etc.) and return 502 Bad Gateway.
+
+* 🐛 **Fixed: activation handler is now near-instant.** Only sets defaults, copies the MU-loader, and writes an empty payload. The heavy dependency-map rebuild, restrictable-set scan, and lookup-table rebuild are deferred to a background `shypdr_deferred_initial_scan` WP-Cron event scheduled ~30 seconds after activation.
+* 🐛 **Fixed: first-time-setup admin hook no longer runs the heavy scanner.** Previously called `scan_active_plugins()` (which reads every plugin file) on the first admin page load — also a 502 risk. Now just verifies the MU-loader is present and ensures the deferred cron is scheduled.
+* 🛡️ **Safety: all rebuild calls wrapped in `try/Throwable`** so a buggy class can never break activation.
+* 🛡️ **Safety: background task raises memory limit and `set_time_limit(300)`** so the deferred scan can complete even on very large sites without PHP-FPM constraints.
+* 🔧 **Cleanup: deactivation now unschedules any pending deferred-scan cron event** so a deactivated plugin can't leave orphan cron entries.
+
+**Upgrade impact:** existing installs see zero behaviour change after upgrade — the deferred scan only fires if `shypdr_needs_setup` is set, which is only true after a fresh activation. Sites already running 6.1.1 continue using the data their activation already populated.
 
 = 6.1.1 - May 25, 2026 =
 🚀 Consolidated patch release validated against a 154-plugin production WooCommerce / membership / LMS site (see PERFORMANCE-AUDIT-2026.md). Folds in every internal iteration since 6.1.0 into a single stable release.

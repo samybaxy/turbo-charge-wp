@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.1
+ * Version: 6.1.2
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.1');
+define('SHYPDR_VERSION', '6.1.2');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
@@ -149,38 +149,98 @@ function shypdr_purge_page_cache() {
 register_activation_hook(__FILE__, 'shypdr_activation_handler');
 
 function shypdr_activation_handler() {
+    // KEEP ACTIVATION FAST. Heavy work (dependency-map rebuild,
+    // restrictable-set scan, content-analyzer) reads dozens of plugin
+    // files synchronously — on a 100+ plugin site that exceeds PHP-FPM
+    // timeout and yields 502 Bad Gateway. We do only the cheap, safe
+    // bits here and defer the rest to a background cron event.
+
     // Set default options using add_option (won't overwrite existing)
     add_option('shypdr_enabled', false);
     add_option('shypdr_debug_enabled', false);
 
-    // Flag that we need to run first-time setup (for scanning)
+    // Flag that initial scan is still pending. Admin UI surfaces this
+    // until the deferred cron has populated the data.
     update_option('shypdr_needs_setup', true);
 
-    // CRITICAL: Install/update MU-loader during activation
-    // This ensures the MU-loader is always the latest version
-    // and prevents old MU-loaders from interfering with activation
+    // CRITICAL: Install/update MU-loader during activation. Single file
+    // copy — fast and safe even on large sites.
     shypdr_install_mu_loader();
 
-    // Rebuild dependency map on activation (includes WP 6.5+ header support)
-    if (class_exists('SHYPDR_Dependency_Detector')) {
-        SHYPDR_Dependency_Detector::rebuild_dependency_map();
-    }
-
-    // Build restrictable set and restriction rules for MU-loader
-    if (class_exists('SHYPDR_Plugin_Scanner')) {
-        SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-    }
-
-    // Build the combined MU-loader payload so the very first frontend
-    // request after activation already benefits from the single-option
-    // read path.
+    // Write a *minimal* MU-payload so the MU-loader has something valid
+    // to read on the very first post-activation request. enabled=false
+    // (which is the just-set default) means the MU-loader bails before
+    // doing any filtering work, so an empty payload is fine here.
     if (class_exists('SHYPDR_Requirements_Cache')) {
-        SHYPDR_Requirements_Cache::write_mu_payload();
+        try {
+            SHYPDR_Requirements_Cache::write_mu_payload();
+        } catch (\Throwable $e) {
+            // Never let payload-write failure break activation.
+        }
     }
 
     // Store current version for upgrade detection
     update_option('shypdr_version', SHYPDR_VERSION);
+
+    // Schedule the heavy scan to run in the background ~30 seconds
+    // after activation. WPE Alternate Cron (or any cron runner) will
+    // fire it independently of the activation HTTP request — visitors
+    // never pay the cost.
+    if (!wp_next_scheduled('shypdr_deferred_initial_scan')) {
+        wp_schedule_single_event(time() + 30, 'shypdr_deferred_initial_scan');
+    }
 }
+
+/**
+ * Deferred initial scan. Runs out-of-band via WP-Cron so the heavy
+ * file I/O and regex work doesn't block the activation HTTP request.
+ *
+ * Safe to re-run; each rebuilder is idempotent.
+ */
+function shypdr_run_deferred_initial_scan() {
+    // Raise the time budget for this background task. Default PHP-FPM
+    // timeout (30-60s) is too short for a 150+ plugin sweep.
+    if (function_exists('wp_raise_memory_limit')) {
+        wp_raise_memory_limit('admin');
+    }
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(300);
+    }
+
+    try {
+        if (class_exists('SHYPDR_Dependency_Detector')) {
+            SHYPDR_Dependency_Detector::rebuild_dependency_map();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] dependency map rebuild failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Plugin_Scanner')) {
+            SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] restrictable data rebuild failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::write_mu_payload();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] payload write failed: ' . $e->getMessage());
+        }
+    }
+
+    // Clear the needs-setup flag now that the heavy work is done.
+    delete_option('shypdr_needs_setup');
+}
+add_action('shypdr_deferred_initial_scan', 'shypdr_run_deferred_initial_scan');
 
 /**
  * Check for plugin version upgrade and run migrations
@@ -299,6 +359,13 @@ function shypdr_get_mu_filter_data() {
 register_deactivation_hook(__FILE__, 'shypdr_deactivation_handler');
 
 function shypdr_deactivation_handler() {
+    // Unschedule any pending deferred initial scan so it doesn't fire
+    // against a deactivated plugin.
+    $next = wp_next_scheduled('shypdr_deferred_initial_scan');
+    if ($next) {
+        wp_unschedule_event($next, 'shypdr_deferred_initial_scan');
+    }
+
     // Clear all caches on deactivation
     if (class_exists('SHYPDR_Detection_Cache')) {
         SHYPDR_Detection_Cache::clear_all_caches();
@@ -391,33 +458,27 @@ function shypdr_first_time_setup() {
         return;
     }
 
-    // Clear the setup flag first to prevent re-runs
-    delete_option('shypdr_needs_setup');
+    // CRITICAL: do NOT run heavy plugin scanning here. On a large site
+    // (150+ plugins) scan_active_plugins() reads up to 500KB per plugin
+    // file via file_get_contents, which can exceed PHP-FPM timeout and
+    // produce 502 Bad Gateway on the post-activation admin page load.
+    //
+    // The heavy scan is deferred to the shypdr_deferred_initial_scan
+    // wp-cron event (scheduled in shypdr_activation_handler). This hook
+    // now only does cheap, safe work that's OK to run in the visitor's
+    // request.
 
-    // Now run the setup operations (these are safe to fail)
-    try {
-        // Clear any old caches
-        if (class_exists('SHYPDR_Detection_Cache')) {
-            SHYPDR_Detection_Cache::clear_all_caches();
-        }
+    // Ensure MU-loader is present (single file copy — fast).
+    shypdr_install_mu_loader();
 
-        // Run intelligent plugin scanner on first activation
-        if (class_exists('SHYPDR_Plugin_Scanner')) {
-            if (!SHYPDR_Plugin_Scanner::is_scan_completed()) {
-                SHYPDR_Plugin_Scanner::get_essential_plugins(true);
-                set_transient('shypdr_activation_notice', true, 60);
-            }
-        }
-
-        // Attempt to install MU-loader automatically
-        shypdr_install_mu_loader();
-    } catch (Exception $e) {
-        // Silently handle installation errors (user can manually install)
-        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-    } catch (Error $e) {
-        // Silently handle installation errors (user can manually install)
-        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+    // If the deferred cron hasn't fired yet, make sure it's still
+    // scheduled. This is a safety net for sites where the activation
+    // schedule was somehow cleared (e.g. cron table wipe).
+    if (!wp_next_scheduled('shypdr_deferred_initial_scan')) {
+        wp_schedule_single_event(time() + 30, 'shypdr_deferred_initial_scan');
     }
+
+    set_transient('shypdr_activation_notice', true, 60);
 }
 
 // Admin notice for MU-loader status
