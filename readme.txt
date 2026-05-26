@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.2
+Stable tag: 6.1.3
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.2
+**Current Version:** 6.1.3
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,15 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.3 - May 26, 2026 =
+🛡️ **Critical fix: prevent filtered plugin list from poisoning persistent object cache (Redis/Memcached)**
+
+On sites using a persistent object cache (e.g., WP Engine Redis), the `option_active_plugins` filter value could be stored in the cache after a frontend request. Subsequent requests — including wp-admin — would then read the cached filtered list, causing WooCommerce, AffiliateWP, and other filtered plugins to appear fully deactivated site-wide, not just on the filtered page.
+
+* 🐛 **Fixed: `wp_cache_delete('active_plugins', 'options')` and `wp_cache_delete('alloptions', 'options')` are now called immediately after filtering** so the filtered value is never persisted in Redis/Memcached. The next request re-reads from the database and gets the full unfiltered list.
+
+**Upgrade impact:** critical for any site running a persistent object cache. Sites on default WordPress (no Redis/Memcached) were not affected but the fix is harmless for them.
 
 = 6.1.2 - May 26, 2026 =
 🛡️ **Hotfix: prevent 502 Bad Gateway on activation for large-install sites**

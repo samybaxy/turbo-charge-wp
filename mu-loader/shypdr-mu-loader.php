@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive - MU Loader
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: High-performance plugin filter using blacklist architecture. Loads everything by default, only restricts known-heavy plugins when not needed. Requires the main Samybaxy's Hyperdrive plugin.
- * Version: 6.1.2
+ * Version: 6.1.3
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
 // Define constants FIRST so main plugin knows MU-loader is installed
 if (!defined('SHYPDR_MU_LOADER_ACTIVE')) {
     define('SHYPDR_MU_LOADER_ACTIVE', true);
-    define('SHYPDR_MU_LOADER_VERSION', '6.1.2');
+    define('SHYPDR_MU_LOADER_VERSION', '6.1.3');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -296,6 +296,14 @@ class SHYPDR_Early_Filter {
 
             self::$filtered = true;
             self::$filtering_active = false;
+
+            // Prevent persistent object caches (e.g., WP Engine Redis) from
+            // storing the filtered list under the 'active_plugins' key. Without
+            // this, a subsequent admin request that hits the cache gets the
+            // reduced list, making filtered plugins appear fully deactivated.
+            wp_cache_delete('active_plugins', 'options');
+            wp_cache_delete('alloptions', 'options');
+
             return self::$loaded_plugins;
 
         } catch (Exception $e) {
