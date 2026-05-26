@@ -88,11 +88,7 @@ class SHYPDR_Main {
             add_action('wp_loaded', [$this, 'log_mu_filter_results']);
         }
 
-        // Phase 2: NitroPack-complementary frontend optimizations
-        // (plugin-aware preconnect hints + pre-cache hardening). Opt-in.
-        if (get_option('shypdr_frontend_optimizations', false)) {
-            SHYPDR_Asset_Optimizer::init();
-        }
+
     }
 
     /**
@@ -593,11 +589,7 @@ class SHYPDR_Main {
             'sanitize_callback' => 'absint',
             'default'           => 0,
         ]);
-        register_setting('shypdr_settings', 'shypdr_frontend_optimizations', [
-            'type'              => 'integer',
-            'sanitize_callback' => 'absint',
-            'default'           => 0,
-        ]);
+
     }
 
     /**
@@ -639,7 +631,6 @@ class SHYPDR_Main {
         $enabled        = (int) get_option('shypdr_enabled', 0);
         $debug_enabled  = (int) get_option('shypdr_debug_enabled', 0);
         $runtime_logging = (int) get_option('shypdr_runtime_logging', 0);
-        $frontend_opts  = (int) get_option('shypdr_frontend_optimizations', 0);
         $logs = self::get_runtime_logs(20);
         $mu_loader_active = shypdr_is_mu_loader_active();
 
@@ -800,19 +791,7 @@ class SHYPDR_Main {
                             <p class="description"><?php esc_html_e( 'Sample 10% of filtered frontend requests to a rotated log file under uploads/shypdr-logs/. Off by default — leave off in production unless diagnosing an issue (file I/O still costs a few hundred microseconds per sampled request).', 'samybaxy-hyperdrive' ); ?></p>
                         </td>
                     </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="shypdr_frontend_optimizations"><?php esc_html_e( 'Frontend Optimizations', 'samybaxy-hyperdrive' ); ?></label>
-                        </th>
-                        <td>
-                            <input type="hidden" name="shypdr_frontend_optimizations" value="0" />
-                            <input type="checkbox" id="shypdr_frontend_optimizations" name="shypdr_frontend_optimizations" value="1"
-                                <?php checked( $frontend_opts, 1 ); ?> />
-                            <p class="description">
-                                <?php esc_html_e( 'Enable NitroPack-complementary tweaks: plugin-aware preconnect hints (added only when the relevant plugin actually loaded for this page), Heartbeat slowed to 60 s, and WordPress emoji detection script removed. Safe to enable alongside NitroPack / WP Rocket / LiteSpeed — these features deliberately do NOT overlap with what page-cache plugins already do.', 'samybaxy-hyperdrive' ); ?>
-                            </p>
-                        </td>
-                    </tr>
+
                 </table>
                 <?php submit_button(); ?>
             </form>

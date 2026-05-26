@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.5
+ * Version: 6.1.6
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.5');
+define('SHYPDR_VERSION', '6.1.6');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
@@ -444,7 +444,6 @@ function shypdr_uninstall_handler() {
     delete_option('shypdr_enabled');
     delete_option('shypdr_debug_enabled');
     delete_option('shypdr_runtime_logging');
-    delete_option('shypdr_frontend_optimizations');
     delete_option('shypdr_essential_plugins');
     delete_option('shypdr_plugin_analysis');
     delete_option('shypdr_scan_completed');

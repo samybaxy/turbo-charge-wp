@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.5
+Stable tag: 6.1.6
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.5
+**Current Version:** 6.1.6
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,9 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.6 - May 26, 2026 =
+* 🗑️ **Removed: Frontend Optimizations setting.** The NitroPack-complementary tweaks checkbox (preconnect hints, heartbeat throttle, emoji removal) has been removed from the settings page. These concerns are handled by the page-cache plugin.
 
 = 6.1.5 - May 26, 2026 =
 🛑 **Critical fix: remove JS-defer feature + defer ALL synchronous heavy work to cron**
