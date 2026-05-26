@@ -18,6 +18,12 @@
  * runs on the frontend only. Admin pages, REST, AJAX, and CRON are
  * untouched.
  *
+ * Note: a blanket JS-defer feature was removed in 6.1.5 — too many
+ * third-party plugins (Elementor, WooCommerce checkout, FunnelKit)
+ * register inline code that requires synchronous script execution.
+ * Let the dedicated page-cache plugin (NitroPack/WP Rocket/LiteSpeed)
+ * handle JS deferral with its own dependency-aware optimizer.
+ *
  * @package SamybaxyHyperdrive
  * @since 6.3.0
  */
@@ -48,51 +54,6 @@ class SHYPDR_Asset_Optimizer {
     ];
 
     /**
-     * Script handles that must NOT be deferred. Deferring these would break
-     * scripts that inline document.write, execute before DOMContentLoaded,
-     * or are depended on by synchronous inline code in the theme.
-     *
-     * jquery/jquery-core/jquery-migrate are kept blocking because themes
-     * commonly use inline <script>jQuery(...) blocks that assume jQuery is
-     * available synchronously. wp-embed uses document.write-style injection.
-     */
-    private static $defer_blocklist = [
-        // jQuery — themes use inline jQuery(...) blocks that need it synchronous.
-        'jquery',
-        'jquery-core',
-        'jquery-migrate',
-        // WordPress core — synchronous by design or uses document.write.
-        'wp-embed',
-        'wp-tinymce',
-        'wp-tinymce-root',
-        'wp-tinymce-inline',
-        'underscore',
-        'backbone',
-        // Elementor — bootstraps widgets and frontend JS synchronously.
-        'elementor-frontend',
-        'elementor-pro-frontend',
-        'elementor-frontend-modules',
-        'elementor-waypoints',
-        'elementor-sticky',
-        // WooCommerce — cart fragments, checkout validation need synchronous load.
-        'woocommerce',
-        'wc-cart-fragments',
-        'wc-add-to-cart',
-        'wc-checkout',
-        'wc-address-i18n',
-        'woocommerce-general',
-        // FunnelKit / CartFlows — order bump and checkout JS must be synchronous.
-        'wfacp-front',
-        'wffn-front',
-        'cartflows-front',
-        'fkcart',
-        // AffiliateWP — tracks referrals on page load.
-        'affiliate-wp-tracking',
-        // NitroPack — must not be deferred as it orchestrates other optimizations.
-        'nitropack-main',
-    ];
-
-    /**
      * Register frontend hooks. Called from SHYPDR_Main::setup_frontend_hooks()
      * only when shypdr_frontend_optimizations is enabled.
      */
@@ -100,94 +61,9 @@ class SHYPDR_Asset_Optimizer {
         // Plugin-aware resource hints — runs once per response.
         add_filter('wp_resource_hints', [__CLASS__, 'add_resource_hints'], 10, 2);
 
-        // JS defer — mark non-critical scripts so WP emits defer attribute.
-        // Priority 9999 ensures all plugins have enqueued before we walk the list.
-        add_action('wp_enqueue_scripts', [__CLASS__, 'defer_non_critical_scripts'], 9999);
-
         // Pre-cache hardening.
         self::slow_heartbeat();
         self::disable_emoji();
-    }
-
-    /**
-     * Apply defer strategy to all enqueued scripts that aren't in the
-     * blocklist and haven't already been given an explicit strategy.
-     *
-     * Uses wp_script_add_data() (WP 4.2+, strategy key WP 6.3+). On older
-     * WP the 'strategy' key is simply ignored — no harm done.
-     *
-     * Only touches scripts in the footer (in_footer = true). Scripts in
-     * <head> that lack an explicit strategy are left untouched because
-     * deferring a head script while its dependents are in the footer can
-     * create ordering races.
-     */
-    public static function defer_non_critical_scripts() {
-        global $wp_scripts;
-        if (!($wp_scripts instanceof WP_Scripts)) {
-            return;
-        }
-
-        $blocklist = array_flip(self::$defer_blocklist);
-
-        // Build a set of handles that are loaded in <head> (not in_footer).
-        // We must never defer a footer script whose dep chain includes a head
-        // script — the head script executes synchronously before the deferred
-        // one downloads, so order is already correct, but deferring the child
-        // can create a race if the dep is also deferred later.
-        $head_handles = [];
-        foreach ($wp_scripts->registered as $handle => $script) {
-            if (empty($script->extra['group']) && !in_array($handle, $wp_scripts->in_footer, true)) {
-                $head_handles[$handle] = true;
-            }
-        }
-
-        foreach ($wp_scripts->queue as $handle) {
-            if (isset($blocklist[$handle])) {
-                continue;
-            }
-
-            $registered = $wp_scripts->registered[$handle] ?? null;
-            if (!$registered) {
-                continue;
-            }
-
-            // Never defer scripts that load in <head>.
-            if (isset($head_handles[$handle])) {
-                continue;
-            }
-
-            $extra = $registered->extra ?? [];
-
-            // Don't override a strategy already set by the plugin that registered it.
-            if (!empty($extra['strategy'])) {
-                continue;
-            }
-
-            // Skip scripts with any inline before/after code — inline code
-            // commonly assumes the script has already executed synchronously.
-            if (!empty($extra['before']) || !empty($extra['after'])) {
-                continue;
-            }
-
-            // Skip if any direct dependency is a head (blocking) script.
-            // Deferring a footer script while its dep runs synchronously in
-            // <head> is safe in theory, but some scripts re-declare globals
-            // inside closures that the dep expects to find immediately.
-            if (!empty($registered->deps)) {
-                $has_head_dep = false;
-                foreach ($registered->deps as $dep) {
-                    if (isset($head_handles[$dep]) || isset($blocklist[$dep])) {
-                        $has_head_dep = true;
-                        break;
-                    }
-                }
-                if ($has_head_dep) {
-                    continue;
-                }
-            }
-
-            wp_script_add_data($handle, 'strategy', 'defer');
-        }
     }
 
     /**

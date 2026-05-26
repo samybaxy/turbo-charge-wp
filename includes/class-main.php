@@ -17,30 +17,6 @@ class SHYPDR_Main {
     private static $essential_plugins_cache = null;
 
     /**
-     * Get essential plugins list (dynamic, from database or scanner)
-     *
-     * @return array Essential plugin slugs
-     */
-    private static function get_essential_plugins() {
-        if (self::$essential_plugins_cache !== null) {
-            return self::$essential_plugins_cache;
-        }
-
-        $essential = apply_filters('shypdr_essential_plugins', null);
-
-        if ($essential === null) {
-            $essential = SHYPDR_Plugin_Scanner::get_essential_plugins();
-        }
-
-        if (empty($essential)) {
-            $essential = ['elementor', 'jet-engine', 'jet-theme-core', 'presto-player', 'presto-player-pro'];
-        }
-
-        self::$essential_plugins_cache = $essential;
-        return $essential;
-    }
-
-    /**
      * Initialize the plugin
      */
     public static function init() {
@@ -395,37 +371,46 @@ class SHYPDR_Main {
     }
 
     /**
-     * Handle plugin activation - rebuild dependencies and clear caches
+     * Handle plugin activation/deactivation.
+     *
+     * The heavy work — dependency-map rebuild and restrictable-set scan —
+     * reads dozens of plugin files (~50KB each) and runs regex over them.
+     * On a 150-plugin site that can take 10-30 seconds, which exceeds
+     * PHP-FPM timeout during a plugin-management HTTP request and yields
+     * 502 Bad Gateway.
+     *
+     * We do only the cheap bits inline (cache clears, static reset) and
+     * defer the heavy rebuilds to a single background cron event. The
+     * event is debounced via wp_next_scheduled so bulk activations
+     * (5 plugins toggled at once) coalesce into one rebuild.
      */
     public function handle_plugin_activation() {
-        // Rebuild dependency map to include newly activated plugin
-        SHYPDR_Dependency_Detector::rebuild_dependency_map();
+        self::handle_plugin_change();
+    }
 
-        // Rebuild restrictable set and restriction rules
-        SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-
-        // Clear caches
-        SHYPDR_Detection_Cache::clear_all_caches();
-        SHYPDR_Requirements_Cache::clear();
-        self::$essential_plugins_cache = null;
-        self::$dependency_map = [];
+    public function handle_plugin_deactivation() {
+        self::handle_plugin_change();
     }
 
     /**
-     * Handle plugin deactivation - rebuild dependencies and clear caches
+     * Shared cleanup + cron schedule for plugin activation/deactivation.
      */
-    public function handle_plugin_deactivation() {
-        // Rebuild dependency map to remove deactivated plugin
-        SHYPDR_Dependency_Detector::rebuild_dependency_map();
-
-        // Rebuild restrictable set and restriction rules
-        SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-
-        // Clear caches
-        SHYPDR_Detection_Cache::clear_all_caches();
-        SHYPDR_Requirements_Cache::clear();
+    private static function handle_plugin_change() {
+        // Cheap work — clear caches synchronously so the next request
+        // doesn't see stale data.
+        if (class_exists('SHYPDR_Detection_Cache')) {
+            SHYPDR_Detection_Cache::clear_all_caches();
+        }
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::clear();
+        }
         self::$essential_plugins_cache = null;
         self::$dependency_map = [];
+
+        // Heavy work — schedule the rebuild ~15 seconds out, debounced.
+        if (!wp_next_scheduled('shypdr_deferred_rebuild')) {
+            wp_schedule_single_event(time() + 15, 'shypdr_deferred_rebuild');
+        }
     }
 
     /**
@@ -980,7 +965,21 @@ class SHYPDR_Main {
 
         $analysis = get_option('shypdr_plugin_analysis', false);
         if ($analysis === false) {
-            $analysis = SHYPDR_Plugin_Scanner::scan_active_plugins();
+            // No cached analysis yet — show a placeholder and queue a
+            // background scan rather than running the heavy scanner inline
+            // (which reads up to 500KB per plugin × N plugins and can 502
+            // PHP-FPM on large sites).
+            if (!wp_next_scheduled('shypdr_deferred_rebuild')) {
+                wp_schedule_single_event(time() + 10, 'shypdr_deferred_rebuild');
+            }
+            $analysis = [
+                'critical'      => [],
+                'conditional'   => [],
+                'optional'      => [],
+                'analyzed_at'   => '',
+                'total_plugins' => 0,
+            ];
+            echo '<div class="notice notice-info"><p><strong>' . esc_html__( 'Scan pending.', 'samybaxy-hyperdrive' ) . '</strong> ' . esc_html__( 'A background scan has been scheduled. Refresh this page in a minute to see results.', 'samybaxy-hyperdrive' ) . '</p></div>';
         }
 
         $current_essential = get_option('shypdr_essential_plugins', []);

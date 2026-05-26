@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.4
+ * Version: 6.1.5
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.4');
+define('SHYPDR_VERSION', '6.1.5');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
@@ -243,34 +243,75 @@ function shypdr_run_deferred_initial_scan() {
 add_action('shypdr_deferred_initial_scan', 'shypdr_run_deferred_initial_scan');
 
 /**
- * Check for plugin version upgrade and run migrations
+ * Shared deferred rebuild used for:
+ * - Plugin activation/deactivation (handle_plugin_change)
+ * - Version upgrades (shypdr_check_version_upgrade)
+ *
+ * Identical body to shypdr_run_deferred_initial_scan but does NOT clear
+ * the needs_setup flag.
+ */
+function shypdr_run_deferred_rebuild() {
+    if (function_exists('wp_raise_memory_limit')) {
+        wp_raise_memory_limit('admin');
+    }
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(300);
+    }
+
+    try {
+        if (class_exists('SHYPDR_Dependency_Detector')) {
+            SHYPDR_Dependency_Detector::rebuild_dependency_map();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] deferred rebuild: dependency map failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Plugin_Scanner')) {
+            SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] deferred rebuild: restrictable data failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::write_mu_payload();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] deferred rebuild: payload write failed: ' . $e->getMessage());
+        }
+    }
+}
+add_action('shypdr_deferred_rebuild', 'shypdr_run_deferred_rebuild');
+
+/**
+ * Check for plugin version upgrade.
+ *
+ * Heavy rebuild work is deferred to the shypdr_deferred_rebuild cron event
+ * so it doesn't 502 on the first admin page load after upgrade. We do the
+ * minimal synchronous work here: bump the stored version and ensure the
+ * MU-loader file is up to date (single file copy — fast).
  */
 function shypdr_check_version_upgrade() {
     $stored_version = get_option('shypdr_version', '0');
 
     if (version_compare($stored_version, SHYPDR_VERSION, '<')) {
-        // Version upgrade detected - rebuild dependency map
-        // This ensures WP 6.5+ Requires Plugins header data is picked up
-        if (class_exists('SHYPDR_Dependency_Detector')) {
-            SHYPDR_Dependency_Detector::rebuild_dependency_map();
-        }
-
-        // Rebuild restrictable set and restriction rules
-        if (class_exists('SHYPDR_Plugin_Scanner')) {
-            SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-        }
-
-        // Update MU-loader to latest version
+        // Cheap synchronous: update MU-loader file (single copy operation).
         shypdr_install_mu_loader();
 
-        // Rebuild the combined payload so upgrades from 6.1.x pick up
-        // the single-option read path on the next frontend request.
-        if (class_exists('SHYPDR_Requirements_Cache')) {
-            SHYPDR_Requirements_Cache::write_mu_payload();
-        }
-
-        // Store new version
+        // Store new version BEFORE scheduling cron so reruns are idempotent.
         update_option('shypdr_version', SHYPDR_VERSION);
+
+        // Defer the heavy rebuild — gives PHP-FPM time to return 200.
+        if (!wp_next_scheduled('shypdr_deferred_rebuild')) {
+            wp_schedule_single_event(time() + 15, 'shypdr_deferred_rebuild');
+        }
     }
 }
 add_action('admin_init', 'shypdr_check_version_upgrade');
@@ -359,12 +400,10 @@ function shypdr_get_mu_filter_data() {
 register_deactivation_hook(__FILE__, 'shypdr_deactivation_handler');
 
 function shypdr_deactivation_handler() {
-    // Unschedule any pending deferred initial scan so it doesn't fire
-    // against a deactivated plugin.
-    $next = wp_next_scheduled('shypdr_deferred_initial_scan');
-    if ($next) {
-        wp_unschedule_event($next, 'shypdr_deferred_initial_scan');
-    }
+    // Unschedule any pending deferred scans so they don't fire against a
+    // deactivated plugin.
+    wp_clear_scheduled_hook('shypdr_deferred_initial_scan');
+    wp_clear_scheduled_hook('shypdr_deferred_rebuild');
 
     // Clear all caches on deactivation
     if (class_exists('SHYPDR_Detection_Cache')) {

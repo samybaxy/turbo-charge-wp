@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.4
+Stable tag: 6.1.5
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.4
+**Current Version:** 6.1.5
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,22 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.5 - May 26, 2026 =
+🛑 **Critical fix: remove JS-defer feature + defer ALL synchronous heavy work to cron**
+
+The blanket JS-defer feature shipped in 6.1.0 caused critical errors on Elementor + WooCommerce + FunnelKit sites no matter how careful the blocklist. It's removed entirely — page-cache plugins (NitroPack, WP Rocket, LiteSpeed) already handle JS deferral correctly with dependency-aware engines. Hyperdrive should not duplicate that work.
+
+A line-by-line review of the plugin also turned up three more synchronous-heavy-work paths that could 502 PHP-FPM on large sites:
+
+* 🛑 **JS-defer feature removed.** The `defer_non_critical_scripts()` method, its blocklist, and its `wp_enqueue_scripts:9999` hook are gone. The Frontend Optimizations toggle still controls preconnect hints, heartbeat throttle, and emoji removal — those are safe.
+* 🐛 **Fixed: activating/deactivating any plugin no longer 502s.** `handle_plugin_activation()` and `handle_plugin_deactivation()` were rebuilding the dependency map + restrictable set synchronously inside the activation HTTP request — same 50-150 plugin-file reads that 6.1.2 deferred for our own activation. Now they only clear caches inline and schedule a debounced `shypdr_deferred_rebuild` cron event 15 s out, so bulk activations coalesce into one rebuild.
+* 🐛 **Fixed: plugin upgrade no longer 502s the next admin page load.** `shypdr_check_version_upgrade()` ran the same heavy rebuild on `admin_init` after every version bump. Now it does only the MU-loader file refresh + version-bump synchronously and schedules the rebuild to the same `shypdr_deferred_rebuild` cron event.
+* 🐛 **Fixed: Essential Plugins tab no longer 502s on fresh installs.** When `shypdr_plugin_analysis` wasn't in the DB yet, opening the tab triggered a synchronous `scan_active_plugins()` that read up to 500KB per plugin × N plugins. Now it shows a "Scan pending" notice and queues the same cron event.
+* 🧹 **Cleanup: removed unused `SHYPDR_Main::get_essential_plugins()`** (dead code — no callers).
+* 🛡️ **Deactivation now uses `wp_clear_scheduled_hook()`** to unschedule both deferred-scan and deferred-rebuild events robustly.
+
+**Upgrade impact:** critical for any install that's been hitting 502s when activating plugins, upgrading Hyperdrive, or opening the Essential Plugins tab. JS-defer users will lose that specific feature — re-enable in their page-cache plugin instead.
 
 = 6.1.4 - May 26, 2026 =
 🛡️ **Fix: JS defer feature was too aggressive, causing critical errors on Elementor/WooCommerce/FunnelKit sites**
