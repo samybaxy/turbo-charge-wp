@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.3
+Stable tag: 6.1.4
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.3
+**Current Version:** 6.1.4
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,16 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.4 - May 26, 2026 =
+🛡️ **Fix: JS defer feature was too aggressive, causing critical errors on Elementor/WooCommerce/FunnelKit sites**
+
+The NitroPack-complementary frontend optimizations toggle includes a JS defer feature that applied `defer` to all footer scripts not in a short blocklist. On sites using Elementor, WooCommerce checkout, or FunnelKit, this broke scripts that depend on synchronous execution order, resulting in a "There has been a critical error" page.
+
+* 🐛 **Fixed: expanded blocklist** — Elementor frontend, WooCommerce cart/checkout scripts, FunnelKit checkout JS, AffiliateWP tracking, and NitroPack itself are now always excluded from deferral.
+* 🐛 **Fixed: skip scripts loaded in `<head>`** — head scripts must always execute synchronously; deferring them causes ordering races with footer dependents.
+* 🐛 **Fixed: skip scripts with `after` inline data** — previously only `before` inline data was checked. Scripts with `after` inline code also assume synchronous execution.
+* 🐛 **Fixed: skip scripts whose direct deps include a head or blocklisted script** — prevents deferring a footer script that relies on a synchronous predecessor.
 
 = 6.1.3 - May 26, 2026 =
 🛡️ **Critical fix: prevent filtered plugin list from poisoning persistent object cache (Redis/Memcached)**

@@ -57,10 +57,39 @@ class SHYPDR_Asset_Optimizer {
      * available synchronously. wp-embed uses document.write-style injection.
      */
     private static $defer_blocklist = [
+        // jQuery — themes use inline jQuery(...) blocks that need it synchronous.
         'jquery',
         'jquery-core',
         'jquery-migrate',
+        // WordPress core — synchronous by design or uses document.write.
         'wp-embed',
+        'wp-tinymce',
+        'wp-tinymce-root',
+        'wp-tinymce-inline',
+        'underscore',
+        'backbone',
+        // Elementor — bootstraps widgets and frontend JS synchronously.
+        'elementor-frontend',
+        'elementor-pro-frontend',
+        'elementor-frontend-modules',
+        'elementor-waypoints',
+        'elementor-sticky',
+        // WooCommerce — cart fragments, checkout validation need synchronous load.
+        'woocommerce',
+        'wc-cart-fragments',
+        'wc-add-to-cart',
+        'wc-checkout',
+        'wc-address-i18n',
+        'woocommerce-general',
+        // FunnelKit / CartFlows — order bump and checkout JS must be synchronous.
+        'wfacp-front',
+        'wffn-front',
+        'cartflows-front',
+        'fkcart',
+        // AffiliateWP — tracks referrals on page load.
+        'affiliate-wp-tracking',
+        // NitroPack — must not be deferred as it orchestrates other optimizations.
+        'nitropack-main',
     ];
 
     /**
@@ -100,6 +129,18 @@ class SHYPDR_Asset_Optimizer {
 
         $blocklist = array_flip(self::$defer_blocklist);
 
+        // Build a set of handles that are loaded in <head> (not in_footer).
+        // We must never defer a footer script whose dep chain includes a head
+        // script — the head script executes synchronously before the deferred
+        // one downloads, so order is already correct, but deferring the child
+        // can create a race if the dep is also deferred later.
+        $head_handles = [];
+        foreach ($wp_scripts->registered as $handle => $script) {
+            if (empty($script->extra['group']) && !in_array($handle, $wp_scripts->in_footer, true)) {
+                $head_handles[$handle] = true;
+            }
+        }
+
         foreach ($wp_scripts->queue as $handle) {
             if (isset($blocklist[$handle])) {
                 continue;
@@ -110,6 +151,11 @@ class SHYPDR_Asset_Optimizer {
                 continue;
             }
 
+            // Never defer scripts that load in <head>.
+            if (isset($head_handles[$handle])) {
+                continue;
+            }
+
             $extra = $registered->extra ?? [];
 
             // Don't override a strategy already set by the plugin that registered it.
@@ -117,10 +163,27 @@ class SHYPDR_Asset_Optimizer {
                 continue;
             }
 
-            // Skip scripts with inline before/after code that may depend on
-            // synchronous execution order.
-            if (!empty($extra['before'])) {
+            // Skip scripts with any inline before/after code — inline code
+            // commonly assumes the script has already executed synchronously.
+            if (!empty($extra['before']) || !empty($extra['after'])) {
                 continue;
+            }
+
+            // Skip if any direct dependency is a head (blocking) script.
+            // Deferring a footer script while its dep runs synchronously in
+            // <head> is safe in theory, but some scripts re-declare globals
+            // inside closures that the dep expects to find immediately.
+            if (!empty($registered->deps)) {
+                $has_head_dep = false;
+                foreach ($registered->deps as $dep) {
+                    if (isset($head_handles[$dep]) || isset($blocklist[$dep])) {
+                        $has_head_dep = true;
+                        break;
+                    }
+                }
+                if ($has_head_dep) {
+                    continue;
+                }
             }
 
             wp_script_add_data($handle, 'strategy', 'defer');
