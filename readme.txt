@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.6
+Stable tag: 6.1.8
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.6
+**Current Version:** 6.1.8
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,23 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.8 - May 26, 2026 =
+🛡️ **Reliability fix: no more silently missing data on hosts with broken WP-Cron**
+
+The 6.1.7 sitewide-plugins fix relied on WP-Cron to actually run the rebuild. On WP Engine (and other traffic-dependent cron hosts) the scheduled event could sit in the queue indefinitely, leaving the menu cart and other header widgets empty until someone manually ran `wp eval` to trigger the rebuild. 6.1.8 closes those gaps:
+
+* 🐛 **Fixed: synchronous safety net on admin_init.** A new `shypdr_admin_init_safety_net()` runs for plugin-editors. If the cached payload is stale (never rebuilt, > 24h old, or `shypdr_sitewide_plugins` missing entirely), it rebuilds the sitewide-plugins set + payload inline and shows a one-shot admin notice. Throttled to one attempt per 5 minutes.
+* ➕ **Added: "Rebuild Now (All)" admin button.** New button on the Hyperdrive settings page that forces every data source to rebuild synchronously — dependency map, restrictable set, sitewide plugins, MU payload. Surfaces per-step results in a success notice. Use this whenever conditional loading isn't behaving as expected and you don't want to wait on cron.
+* 🐛 **Fixed: activation handler now runs synchronously on small sites.** When a site has < 50 `elementor_library` templates AND < 100 active plugins, the activation handler runs all rebuilds inline instead of scheduling a deferred cron event. Eliminates the "I activated but nothing happened" UX on hosts where cron never fires. Larger sites stay on the deferred path so activation doesn't 502 PHP-FPM.
+* ➕ **Added: `shypdr_last_rebuild_at` timestamp.** Every successful rebuild stamps this option so the safety net can detect cron drift. Also surfaced in the settings page ("Last full rebuild: 12 minutes ago").
+
+= 6.1.7 - May 26, 2026 =
+* 🐛 **Fixed: site-wide header/footer widgets render empty when their underlying plugin is filtered.** Hyperdrive previously decided whether to load a plugin (e.g. WooCommerce) by looking only at the current URL's content. That broke any widget placed in an Elementor Pro Theme Builder header/footer that depended on a restrictable plugin — most visibly the WooCommerce menu cart, which silently rendered empty on every non-WooCommerce page.
+* ➕ **Added: site-wide plugins set.** A new `shypdr_sitewide_plugins` option lists plugins required by templates whose conditions include `include/general` (or whose template_type is header/footer/single/archive/search-results/error-404). The MU-loader merges this set into the "needed" plugins on every request, so anything in the header/footer always has its dependencies loaded.
+* ➕ **Added: explicit Elementor Pro WooCommerce widget map.** `woocommerce-menu-cart`, `woocommerce-mini-cart`, and the full Single Product Builder widget set are now mapped directly instead of relying on prefix heuristics.
+* ➕ **Added: `save_post_elementor_library` hook.** Editing a header/footer template now schedules a debounced rebuild of the sitewide set, so widget changes propagate to the MU-loader payload automatically.
+* 🔧 **MU payload version bumped to v2** — existing installs get a fresh payload on next admin page view via the regular upgrade path.
 
 = 6.1.6 - May 26, 2026 =
 * 🗑️ **Removed: Frontend Optimizations setting.** The NitroPack-complementary tweaks checkbox (preconnect hints, heartbeat throttle, emoji removal) has been removed from the settings page. These concerns are handled by the page-cache plugin.

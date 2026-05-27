@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive - MU Loader
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: High-performance plugin filter using blacklist architecture. Loads everything by default, only restricts known-heavy plugins when not needed. Requires the main Samybaxy's Hyperdrive plugin.
- * Version: 6.1.5
+ * Version: 6.1.8
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
 // Define constants FIRST so main plugin knows MU-loader is installed
 if (!defined('SHYPDR_MU_LOADER_ACTIVE')) {
     define('SHYPDR_MU_LOADER_ACTIVE', true);
-    define('SHYPDR_MU_LOADER_VERSION', '6.1.5');
+    define('SHYPDR_MU_LOADER_VERSION', '6.1.8');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -177,6 +177,7 @@ if (!is_array($shypdr_payload) || empty($shypdr_payload['enabled'])) {
         'rules'        => get_option('shypdr_restriction_rules', []),
         'lookup'       => get_option('shypdr_url_requirements', []),
         'dep_map'      => get_option('shypdr_dependency_map', []),
+        'sitewide'     => get_option('shypdr_sitewide_plugins', []),
     ];
 }
 
@@ -209,6 +210,7 @@ class SHYPDR_Early_Filter {
     private static $restriction_rules = null;
     private static $lookup_table = null;
     private static $dependency_map = null;
+    private static $sitewide_plugins = null;
 
     /**
      * Initialize early filtering
@@ -323,7 +325,12 @@ class SHYPDR_Early_Filter {
      * @return array Plugin slugs needed on this page
      */
     private static function detect_needed_plugins() {
-        $needed = [];
+        // Plugins required by site-wide header/footer/general templates
+        // ALWAYS load. Without this, widgets like the Elementor Pro
+        // WooCommerce menu cart in the header render empty on any page
+        // whose own content doesn't reference WooCommerce.
+        $needed = self::$sitewide_plugins ?? [];
+
         // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- Read-only URL parsing for plugin detection
         $request_uri = isset($_SERVER['REQUEST_URI']) ? esc_url_raw(wp_unslash($_SERVER['REQUEST_URI'])) : '';
 
@@ -505,6 +512,8 @@ class SHYPDR_Early_Filter {
             ? $payload['lookup'] : [];
         self::$dependency_map = isset($payload['dep_map']) && is_array($payload['dep_map'])
             ? $payload['dep_map'] : [];
+        self::$sitewide_plugins = isset($payload['sitewide']) && is_array($payload['sitewide'])
+            ? $payload['sitewide'] : [];
     }
 
     private static function get_restrictable_set() {

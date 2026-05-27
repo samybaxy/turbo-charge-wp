@@ -61,6 +61,14 @@ class SHYPDR_Main {
         add_action('save_post', [$this, 'clear_post_cache'], 10, 1);
         add_action('save_post', [$this, 'analyze_post_requirements'], 20, 2);
         add_action('delete_post', [$this, 'remove_post_requirements'], 10, 1);
+
+        // Site-wide template change → schedule sitewide-plugins rebuild.
+        // Elementor saves header/footer/general templates as 'elementor_library'
+        // posts whose widget set determines which plugins must load on every
+        // page. Without this hook a freshly-added WooCommerce menu cart in
+        // the header wouldn't propagate to the MU-loader payload.
+        add_action('save_post_elementor_library', [$this, 'schedule_sitewide_rebuild'], 20, 1);
+        add_action('delete_post', [$this, 'maybe_schedule_sitewide_rebuild_on_delete'], 20, 1);
     }
 
     /**
@@ -467,6 +475,46 @@ class SHYPDR_Main {
     }
 
     /**
+     * Schedule a debounced site-wide plugins rebuild. Fired whenever an
+     * Elementor theme-builder template is saved, since its widget set
+     * affects what must always load on every page.
+     *
+     * Scheduling rather than running inline keeps the editor save fast
+     * (the rebuild scans all elementor_library posts), and natural
+     * debouncing kicks in via wp_next_scheduled.
+     *
+     * @since 6.1.7
+     * @param int $post_id Post ID being saved
+     */
+    public function schedule_sitewide_rebuild($post_id) {
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+            return;
+        }
+        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+            return;
+        }
+        if (!wp_next_scheduled('shypdr_rebuild_sitewide')) {
+            wp_schedule_single_event(time() + 10, 'shypdr_rebuild_sitewide');
+        }
+    }
+
+    /**
+     * Same as schedule_sitewide_rebuild but for delete_post. Only fires
+     * when the deleted post is an elementor_library template — avoids
+     * unnecessary rebuilds on every post deletion.
+     *
+     * @since 6.1.7
+     * @param int $post_id Post ID being deleted
+     */
+    public function maybe_schedule_sitewide_rebuild_on_delete($post_id) {
+        $post = get_post($post_id);
+        if (!$post || $post->post_type !== 'elementor_library') {
+            return;
+        }
+        $this->schedule_sitewide_rebuild($post_id);
+    }
+
+    /**
      * NOTE: Dependency map is now auto-detected by SHYPDR_Dependency_Detector
      *
      * The dependency map is no longer hardcoded. Instead, it is:
@@ -507,6 +555,40 @@ class SHYPDR_Main {
         if ( 'rebuild_cache' === $action ) {
             $this->rebuild_requirements_cache();
         }
+
+        if ( 'rebuild_all' === $action ) {
+            $this->rebuild_all_caches();
+        }
+    }
+
+    /**
+     * Run every Hyperdrive rebuild synchronously. Triggered from the
+     * "Rebuild Now" button on the settings page. Bypasses cron entirely
+     * for hosts where WP-Cron is unreliable (most notably WP Engine
+     * Alternate Cron).
+     *
+     * @since 6.1.8
+     */
+    public function rebuild_all_caches() {
+        if (!isset($_POST['shypdr_rebuild_all_nonce'])
+            || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['shypdr_rebuild_all_nonce'])), 'shypdr_rebuild_all_action')) {
+            wp_die(esc_html__('Security check failed', 'samybaxy-hyperdrive'));
+        }
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Access denied', 'samybaxy-hyperdrive'));
+        }
+
+        if (function_exists('shypdr_run_full_rebuild')) {
+            $results = shypdr_run_full_rebuild(true);
+            set_transient('shypdr_last_manual_rebuild', $results, 120);
+        }
+
+        wp_safe_redirect(add_query_arg(
+            'shypdr_manual_rebuild',
+            '1',
+            admin_url('options-general.php?page=shypdr-settings')
+        ));
+        exit;
     }
 
     /**
@@ -724,12 +806,19 @@ class SHYPDR_Main {
             <div style="background: white; padding: 20px; margin: 20px 0; border-left: 4px solid #17a2b8; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;"><?php esc_html_e( 'Smart Content Detection', 'samybaxy-hyperdrive' ); ?></h2>
                 <p><?php esc_html_e( 'Analyzes page content (shortcodes, Elementor widgets, Gutenberg blocks) to detect which plugins each page needs. This enables O(1) lookup for maximum performance.', 'samybaxy-hyperdrive' ); ?></p>
-                <div style="display: flex; gap: 15px; align-items: center; margin: 15px 0;">
+                <div style="display: flex; gap: 15px; align-items: center; margin: 15px 0; flex-wrap: wrap;">
                     <form method="post" style="display: inline;">
                         <input type="hidden" name="shypdr_action" value="rebuild_cache" />
                         <?php wp_nonce_field( 'shypdr_rebuild_cache_action', 'shypdr_rebuild_cache_nonce' ); ?>
                         <button type="submit" class="button button-secondary" onclick="return confirm('<?php echo esc_js( __( 'This will analyze all published pages. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
                             <?php esc_html_e( 'Rebuild Requirements Cache', 'samybaxy-hyperdrive' ); ?>
+                        </button>
+                    </form>
+                    <form method="post" style="display: inline;">
+                        <input type="hidden" name="shypdr_action" value="rebuild_all" />
+                        <?php wp_nonce_field( 'shypdr_rebuild_all_action', 'shypdr_rebuild_all_nonce' ); ?>
+                        <button type="submit" class="button button-primary" onclick="return confirm('<?php echo esc_js( __( 'Rebuild every cached data source (dependency map, restrictable set, sitewide plugins, MU payload). May take 10-30 seconds. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
+                            <?php esc_html_e( 'Rebuild Now (All)', 'samybaxy-hyperdrive' ); ?>
                         </button>
                     </form>
                     <span style="color: #666; font-size: 13px;">
@@ -741,9 +830,40 @@ class SHYPDR_Main {
                             esc_html( $cache_stats['size_kb'] )
                         );
                         ?>
+                        <?php
+                        $last_rebuild = (int) get_option( 'shypdr_last_rebuild_at', 0 );
+                        if ( $last_rebuild ) {
+                            echo ' &mdash; ';
+                            printf(
+                                /* translators: %s: human-readable time since last rebuild */
+                                esc_html__( 'Last full rebuild: %s ago', 'samybaxy-hyperdrive' ),
+                                esc_html( human_time_diff( $last_rebuild, time() ) )
+                            );
+                        } else {
+                            echo ' &mdash; <span style="color:#d63638;">' . esc_html__( 'Never rebuilt', 'samybaxy-hyperdrive' ) . '</span>';
+                        }
+                        ?>
                     </span>
                 </div>
-                <p class="description"><?php esc_html_e( 'Run this after bulk content changes or when conditional loading isn\'t working correctly.', 'samybaxy-hyperdrive' ); ?></p>
+                <p class="description">
+                    <?php esc_html_e( '"Rebuild Requirements Cache" analyzes published pages only.', 'samybaxy-hyperdrive' ); ?>
+                    <?php esc_html_e( '"Rebuild Now (All)" forces every Hyperdrive data source to rebuild synchronously — use this on hosts where WP-Cron is unreliable (e.g. WP Engine) and the menu cart or other header widgets aren\'t showing.', 'samybaxy-hyperdrive' ); ?>
+                </p>
+
+                <?php
+                $manual_results = get_transient('shypdr_last_manual_rebuild');
+                if (!empty($_GET['shypdr_manual_rebuild']) && is_array($manual_results)) :
+                    delete_transient('shypdr_last_manual_rebuild');
+                ?>
+                    <div class="notice notice-success" style="margin: 10px 0; padding: 10px;">
+                        <strong><?php esc_html_e( 'Manual rebuild complete:', 'samybaxy-hyperdrive' ); ?></strong>
+                        <ul style="margin: 5px 0 0 20px; list-style: disc;">
+                            <?php foreach ($manual_results as $step => $value) : ?>
+                                <li><code><?php echo esc_html($step); ?></code>: <?php echo esc_html(is_scalar($value) ? (string) $value : wp_json_encode($value)); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
             </div>
 
             <form method="post" action="options.php">

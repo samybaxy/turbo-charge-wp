@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.6
+ * Version: 6.1.8
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.6');
+define('SHYPDR_VERSION', '6.1.8');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
@@ -58,6 +58,7 @@ function shypdr_maybe_rebuild_mu_payload($option) {
         'shypdr_restriction_rules',
         'shypdr_url_requirements',
         'shypdr_dependency_map',
+        'shypdr_sitewide_plugins',
     ];
 
     if (!in_array($option, $sources, true)) {
@@ -182,6 +183,26 @@ function shypdr_activation_handler() {
     // Store current version for upgrade detection
     update_option('shypdr_version', SHYPDR_VERSION);
 
+    // For small sites, run the rebuild SYNCHRONOUSLY during activation —
+    // cron-based deferral is unreliable on hosts where WP-Cron is
+    // traffic-dependent (most notably WP Engine Alternate Cron). The
+    // sitewide-plugins scan + payload write is cheap on small sites
+    // (< ~50 templates, < 200 plugins) and avoids the "I activated but
+    // nothing happened" UX. Larger sites stay on the deferred path so
+    // activation doesn't 502 PHP-FPM.
+    global $wpdb;
+    $template_count = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->posts}
+         WHERE post_type = 'elementor_library' AND post_status = 'publish'"
+    );
+    $active_count = count((array) get_option('active_plugins', []));
+
+    if ($template_count < 50 && $active_count < 100 && function_exists('shypdr_run_full_rebuild')) {
+        shypdr_run_full_rebuild(true);
+        delete_option('shypdr_needs_setup');
+        return;
+    }
+
     // Schedule the heavy scan to run in the background ~30 seconds
     // after activation. WPE Alternate Cron (or any cron runner) will
     // fire it independently of the activation HTTP request — visitors
@@ -229,7 +250,18 @@ function shypdr_run_deferred_initial_scan() {
 
     try {
         if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] sitewide plugins rebuild failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
             SHYPDR_Requirements_Cache::write_mu_payload();
+            SHYPDR_Requirements_Cache::mark_rebuild_completed();
         }
     } catch (\Throwable $e) {
         if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -280,7 +312,18 @@ function shypdr_run_deferred_rebuild() {
 
     try {
         if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] deferred rebuild: sitewide plugins failed: ' . $e->getMessage());
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
             SHYPDR_Requirements_Cache::write_mu_payload();
+            SHYPDR_Requirements_Cache::mark_rebuild_completed();
         }
     } catch (\Throwable $e) {
         if (defined('WP_DEBUG') && WP_DEBUG) {
@@ -289,6 +332,172 @@ function shypdr_run_deferred_rebuild() {
     }
 }
 add_action('shypdr_deferred_rebuild', 'shypdr_run_deferred_rebuild');
+
+/**
+ * Cron handler: rebuild the site-wide plugins set.
+ *
+ * Triggered on edits to elementor_library templates (header, footer, etc.).
+ * Fires from a debounced wp_schedule_single_event so multiple edits within
+ * a few seconds coalesce into one rebuild.
+ *
+ * @since 6.1.7
+ */
+function shypdr_run_sitewide_rebuild() {
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(60);
+    }
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
+            SHYPDR_Requirements_Cache::write_mu_payload();
+            SHYPDR_Requirements_Cache::mark_rebuild_completed();
+        }
+    } catch (\Throwable $e) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[shypdr] sitewide rebuild failed: ' . $e->getMessage());
+        }
+    }
+}
+add_action('shypdr_rebuild_sitewide', 'shypdr_run_sitewide_rebuild');
+
+/**
+ * Synchronous rebuild of every cached data source the MU-loader needs.
+ * Shared body between the cron handlers and the admin_init safety net.
+ *
+ * Each step is wrapped so one failure doesn't break the others. Stamps a
+ * "last rebuild" timestamp on success so the safety net knows the data
+ * is fresh.
+ *
+ * @since 6.1.8
+ * @param bool $include_heavy Whether to rebuild the (slower) dependency
+ *                            map and restrictable set. When false, only
+ *                            the sitewide-plugins rebuild + payload write
+ *                            run — cheap enough for inline admin_init.
+ * @return array Result counts for each step.
+ */
+function shypdr_run_full_rebuild($include_heavy = true) {
+    $results = [];
+
+    if (function_exists('wp_raise_memory_limit')) {
+        wp_raise_memory_limit('admin');
+    }
+    if (function_exists('set_time_limit')) {
+        @set_time_limit(120);
+    }
+
+    if ($include_heavy) {
+        try {
+            if (class_exists('SHYPDR_Dependency_Detector')) {
+                SHYPDR_Dependency_Detector::rebuild_dependency_map();
+                $results['dependency_map'] = 'ok';
+            }
+        } catch (\Throwable $e) {
+            $results['dependency_map'] = 'error: ' . $e->getMessage();
+        }
+
+        try {
+            if (class_exists('SHYPDR_Plugin_Scanner')) {
+                SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
+                $results['restrictable'] = 'ok';
+            }
+        } catch (\Throwable $e) {
+            $results['restrictable'] = 'error: ' . $e->getMessage();
+        }
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            $count = SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
+            $results['sitewide'] = $count;
+        }
+    } catch (\Throwable $e) {
+        $results['sitewide'] = 'error: ' . $e->getMessage();
+    }
+
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            SHYPDR_Requirements_Cache::write_mu_payload();
+            SHYPDR_Requirements_Cache::mark_rebuild_completed();
+            $results['payload'] = 'ok';
+        }
+    } catch (\Throwable $e) {
+        $results['payload'] = 'error: ' . $e->getMessage();
+    }
+
+    return $results;
+}
+
+/**
+ * Admin_init safety net.
+ *
+ * WP-Cron on WP Engine (and other hosts) is traffic-dependent: scheduled
+ * events can sit in the queue for hours without firing. When that happens,
+ * users see stale or empty Hyperdrive data — most visibly, header widgets
+ * (menu cart) rendering empty because the sitewide-plugins set was never
+ * built.
+ *
+ * This safety net runs on admin_init for users who can edit plugins. It
+ * only kicks in when:
+ *   - Hyperdrive is enabled
+ *   - SHYPDR_Requirements_Cache::is_payload_stale() returns true
+ *
+ * The rebuild itself is cheap (sitewide-plugins scan + payload write,
+ * ~50-200ms on a 100-template site). Heavy work (dependency map,
+ * restrictable scan) is excluded so we don't slow admin page loads.
+ *
+ * Sets a transient-backed admin notice once per stale recovery so the
+ * user knows it happened.
+ *
+ * @since 6.1.8
+ */
+function shypdr_admin_init_safety_net() {
+    if (!current_user_can('activate_plugins')) {
+        return;
+    }
+    if (!get_option('shypdr_enabled', false)) {
+        return;
+    }
+    if (!class_exists('SHYPDR_Requirements_Cache')) {
+        return;
+    }
+    if (!SHYPDR_Requirements_Cache::is_payload_stale()) {
+        return;
+    }
+
+    // Throttle: only attempt once per 5 minutes to avoid running on every
+    // admin page load if a rebuild keeps failing for some reason.
+    $last_attempt = (int) get_transient('shypdr_safety_net_last_attempt');
+    if ($last_attempt && (time() - $last_attempt) < 300) {
+        return;
+    }
+    set_transient('shypdr_safety_net_last_attempt', time(), 600);
+
+    shypdr_run_full_rebuild(false);
+
+    // Surface a one-shot admin notice so the user understands why the
+    // first admin page after deploy was slightly slower than usual.
+    set_transient('shypdr_safety_net_notice', 1, 60);
+}
+add_action('admin_init', 'shypdr_admin_init_safety_net', 99);
+
+/**
+ * Render the safety-net notice once.
+ *
+ * @since 6.1.8
+ */
+function shypdr_safety_net_notice() {
+    if (!get_transient('shypdr_safety_net_notice')) {
+        return;
+    }
+    delete_transient('shypdr_safety_net_notice');
+    if (!current_user_can('activate_plugins')) {
+        return;
+    }
+    echo '<div class="notice notice-info is-dismissible"><p><strong>Hyperdrive:</strong> ';
+    esc_html_e('Detected stale data — rebuilt the site-wide plugin set inline (WP-Cron appears to have skipped the scheduled rebuild). No action needed.', 'samybaxy-hyperdrive');
+    echo '</p></div>';
+}
+add_action('admin_notices', 'shypdr_safety_net_notice');
 
 /**
  * Check for plugin version upgrade.
@@ -404,6 +613,7 @@ function shypdr_deactivation_handler() {
     // deactivated plugin.
     wp_clear_scheduled_hook('shypdr_deferred_initial_scan');
     wp_clear_scheduled_hook('shypdr_deferred_rebuild');
+    wp_clear_scheduled_hook('shypdr_rebuild_sitewide');
 
     // Clear all caches on deactivation
     if (class_exists('SHYPDR_Detection_Cache')) {
@@ -457,6 +667,11 @@ function shypdr_uninstall_handler() {
     delete_option('shypdr_dependency_map');
     delete_option('shypdr_circular_dependencies');
     delete_option('shypdr_mu_payload');
+    delete_option('shypdr_sitewide_plugins');
+    delete_option('shypdr_last_rebuild_at');
+    delete_transient('shypdr_safety_net_last_attempt');
+    delete_transient('shypdr_safety_net_notice');
+    delete_transient('shypdr_last_manual_rebuild');
 
     // Remove runtime log directory
     $upload_dir = wp_upload_dir();

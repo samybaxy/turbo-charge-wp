@@ -4,6 +4,7 @@
 DOCUMENTATION.md
 PERFORMANCE-AUDIT-2026.md
 PRODUCTION-AUDIT.md
+MENU-CART-DEBUG-PLAN.md
 
 # WP Engine system MU-plugin stray (only appears when the plugin folder
 # lives inside a Local-synced WP Engine site; never belongs in the repo)
