@@ -4,7 +4,7 @@ Donate link: https://github.com/samybaxy/samybaxy-hyperdrive/blob/main/DONATE.md
 Tags: performance, optimization, speed, caching, conditional-loading
 Requires at least: 6.4
 Tested up to: 6.9
-Stable tag: 6.1.8
+Stable tag: 6.1.9
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -14,7 +14,7 @@ Load only essential plugins per page for 65-75% faster WordPress sites through i
 == Description ==
 
 **Status:** Production Ready
-**Current Version:** 6.1.8
+**Current Version:** 6.1.9
 
 Samybaxy's Hyperdrive makes WordPress sites **65-75% faster** by intelligently loading only the plugins needed for each page.
 
@@ -339,6 +339,18 @@ Yes, the plugin supports WordPress multisite installations.
 7. GTMetrix score for Dev environment running Optimization with NitroPack and HyperDrive on WPEngine Host.
 
 == Changelog ==
+
+= 6.1.9 - May 28, 2026 =
+🐛 **Bug fixes + cleanup pass: lookup table refills correctly after plugin changes, MU-loader no longer thrashes the object cache, dead code removed**
+
+* 🐛 **Fixed: per-URL requirements lookup was never rebuilt by cron after plugin activation/deactivation.** `shypdr_run_deferred_rebuild()` (the cron event scheduled on every plugin activate/deactivate and after every Hyperdrive upgrade) rebuilt the dependency map, restrictable set, and sitewide-plugins set — but skipped `rebuild_lookup_table()`. Combined with `handle_plugin_change()` clearing `shypdr_url_requirements` synchronously, this meant the lookup stayed empty until the user manually clicked Rebuild or until `save_post` slowly refilled it one page at a time. Both deferred cron paths now delegate to the same unified `shypdr_run_full_rebuild()` used by the manual button.
+* 🐛 **Fixed: MU-loader busted the alloptions object cache on every cache-miss frontend request.** A defensive `wp_cache_delete('alloptions', 'options')` call (added in 6.1.3) ran inside the per-request `option_active_plugins` filter, forcing the next `get_option()` on hosts with a persistent object cache (Redis on WP Engine, Memcached, etc.) to rehit the DB. The cache was never actually at risk of getting poisoned — WordPress caches the raw pre-filter option value, not the filtered result — so the delete was unnecessary work that defeated the very `get_option()` performance optimization the MU-loader relies on. Removed.
+* 🧹 **Removed: dead `SHYPDR_Asset_Optimizer` class.** Leftover from the 6.1.5 / 6.1.6 removal of the Frontend Optimizations feature. Class autoloaded on demand so it never cost runtime, but it added 163 lines of confusing dead code to the SVN distribution. Page-cache plugins (NitroPack, WP Rocket, LiteSpeed) handle resource hints and emoji removal correctly with dependency-aware engines — Hyperdrive should not duplicate that work.
+* 🧹 **Consolidated: "Rebuild Requirements Cache" and "Rebuild Now (All)" merged into a single "Rebuild Now" button.** The two-button design caused user confusion — neither button alone gave a complete rebuild (one analyzed pages, the other rebuilt the dependency graph). The new single button runs the full rebuild: dependency map → restrictable set → sitewide plugins → per-URL lookup → MU payload.
+* ➕ **Added: "Clear Caches" button.** Wipes every Hyperdrive-built data source (lookup table, sitewide plugins, dependency map, restrictable set, restriction rules, MU payload, rebuild timestamp, detection/content-scan transients) to zero. Companion to Rebuild Now: without a baseline of zero, you cannot tell whether a rebuild actually changed the underlying data or simply re-stamped the timestamp. Workflow: Clear Caches → confirm counters read 0 → Rebuild Now → confirm counters read N. User settings (`shypdr_enabled`, debug, runtime_logging) are not touched.
+* 🐛 **Fixed: legacy `rebuild_requirements_cache` action path now stamps `shypdr_last_rebuild_at`.** Triggering the rebuild via a stale bookmark or external POST used to leave the timestamp unchanged, causing the admin_init safety net to mistakenly classify the freshly-rebuilt payload as stale and run an extra inline rebuild on the next admin page load.
+* 🧹 **MU-loader: tightened error handling.** The `option_active_plugins` filter's catch block now traps `\Throwable` instead of `\Exception`, so a type error inside dependency expansion falls back to "return unfiltered" instead of yielding a 500.
+* 🧹 **MU-loader: deduplicated cache-warmer User-Agent list.** `lscache_runner` was listed twice.
 
 = 6.1.8 - May 26, 2026 =
 🛡️ **Reliability fix: no more silently missing data on hosts with broken WP-Cron**

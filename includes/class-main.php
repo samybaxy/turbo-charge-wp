@@ -559,6 +559,56 @@ class SHYPDR_Main {
         if ( 'rebuild_all' === $action ) {
             $this->rebuild_all_caches();
         }
+
+        if ( 'clear_caches' === $action ) {
+            $this->clear_all_rebuild_caches();
+        }
+    }
+
+    /**
+     * Wipe every Hyperdrive-built data source to zero so the next Rebuild
+     * Now starts from a clean slate. Used as a "prove the rebuild really
+     * ran" diagnostic: clear → reload (counters read 0) → Rebuild Now →
+     * counters read N. Without this, a stamped timestamp could lie about
+     * whether the rebuild actually changed the underlying data.
+     *
+     * Wipes: lookup table, sitewide plugins, dependency map, restrictable
+     * set, restriction rules, MU payload, rebuild timestamp, plus the
+     * URL-detection and content-scan transients owned by Detection_Cache.
+     * Leaves user settings (shypdr_enabled, debug, runtime_logging) and
+     * post-meta debounce markers alone — those aren't rebuild artefacts.
+     *
+     * @since 6.1.9
+     */
+    public function clear_all_rebuild_caches() {
+        if ( ! isset( $_POST['shypdr_clear_caches_nonce'] )
+            || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['shypdr_clear_caches_nonce'] ) ), 'shypdr_clear_caches_action' ) ) {
+            wp_die( esc_html__( 'Security check failed', 'samybaxy-hyperdrive' ) );
+        }
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Access denied', 'samybaxy-hyperdrive' ) );
+        }
+
+        $cleared = [
+            'shypdr_url_requirements',
+            'shypdr_sitewide_plugins',
+            'shypdr_dependency_map',
+            'shypdr_circular_dependencies',
+            'shypdr_restrictable_plugins',
+            'shypdr_restriction_rules',
+            'shypdr_mu_payload',
+            'shypdr_last_rebuild_at',
+        ];
+        foreach ( $cleared as $option ) {
+            delete_option( $option );
+        }
+
+        if ( class_exists( 'SHYPDR_Detection_Cache' ) ) {
+            SHYPDR_Detection_Cache::clear_all_caches();
+        }
+
+        wp_safe_redirect( add_query_arg( 'shypdr_caches_cleared', count( $cleared ), admin_url( 'options-general.php?page=shypdr-settings' ) ) );
+        exit;
     }
 
     /**
@@ -604,6 +654,10 @@ class SHYPDR_Main {
         }
 
         $count = SHYPDR_Requirements_Cache::rebuild_lookup_table();
+
+        // Stamp the rebuild timestamp so the admin_init safety net doesn't
+        // see "stale" and re-run an inline rebuild on the next page load.
+        SHYPDR_Requirements_Cache::mark_rebuild_completed();
 
         wp_safe_redirect(add_query_arg('shypdr_cache_rebuilt', $count, admin_url('options-general.php?page=shypdr-settings')));
         exit;
@@ -745,6 +799,23 @@ class SHYPDR_Main {
                 </div>
             <?php endif; ?>
 
+            <?php
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+            if ( isset( $_GET['shypdr_caches_cleared'] ) ) : ?>
+                <div class="notice notice-success is-dismissible">
+                    <p><strong><?php esc_html_e( 'Caches cleared.', 'samybaxy-hyperdrive' ); ?></strong>
+                    <?php
+                    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display-only notice, no action taken
+                    $cleared_count = intval( sanitize_text_field( wp_unslash( $_GET['shypdr_caches_cleared'] ) ) );
+                    printf(
+                        /* translators: %d: number of options cleared */
+                        esc_html__( 'Wiped %d Hyperdrive data sources to zero. Click Rebuild Now to repopulate.', 'samybaxy-hyperdrive' ),
+                        absint( $cleared_count )
+                    );
+                    ?></p>
+                </div>
+            <?php endif; ?>
+
             <!-- MU-Loader Status Banner -->
             <div style="background: <?php echo esc_attr( $mu_loader_active ? '#d4edda' : '#f8d7da' ); ?>; padding: 20px; margin: 20px 0; border-left: 4px solid <?php echo esc_attr( $mu_loader_active ? '#28a745' : '#dc3545' ); ?>; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">
@@ -808,17 +879,17 @@ class SHYPDR_Main {
                 <p><?php esc_html_e( 'Analyzes page content (shortcodes, Elementor widgets, Gutenberg blocks) to detect which plugins each page needs. This enables O(1) lookup for maximum performance.', 'samybaxy-hyperdrive' ); ?></p>
                 <div style="display: flex; gap: 15px; align-items: center; margin: 15px 0; flex-wrap: wrap;">
                     <form method="post" style="display: inline;">
-                        <input type="hidden" name="shypdr_action" value="rebuild_cache" />
-                        <?php wp_nonce_field( 'shypdr_rebuild_cache_action', 'shypdr_rebuild_cache_nonce' ); ?>
-                        <button type="submit" class="button button-secondary" onclick="return confirm('<?php echo esc_js( __( 'This will analyze all published pages. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
-                            <?php esc_html_e( 'Rebuild Requirements Cache', 'samybaxy-hyperdrive' ); ?>
+                        <input type="hidden" name="shypdr_action" value="rebuild_all" />
+                        <?php wp_nonce_field( 'shypdr_rebuild_all_action', 'shypdr_rebuild_all_nonce' ); ?>
+                        <button type="submit" class="button button-primary" onclick="return confirm('<?php echo esc_js( __( 'Rebuild every cached data source (dependency map, restrictable set, sitewide plugins, per-URL requirements, MU payload). May take 10-30 seconds. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
+                            <?php esc_html_e( 'Rebuild Now', 'samybaxy-hyperdrive' ); ?>
                         </button>
                     </form>
                     <form method="post" style="display: inline;">
-                        <input type="hidden" name="shypdr_action" value="rebuild_all" />
-                        <?php wp_nonce_field( 'shypdr_rebuild_all_action', 'shypdr_rebuild_all_nonce' ); ?>
-                        <button type="submit" class="button button-primary" onclick="return confirm('<?php echo esc_js( __( 'Rebuild every cached data source (dependency map, restrictable set, sitewide plugins, MU payload). May take 10-30 seconds. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
-                            <?php esc_html_e( 'Rebuild Now (All)', 'samybaxy-hyperdrive' ); ?>
+                        <input type="hidden" name="shypdr_action" value="clear_caches" />
+                        <?php wp_nonce_field( 'shypdr_clear_caches_action', 'shypdr_clear_caches_nonce' ); ?>
+                        <button type="submit" class="button button-secondary" onclick="return confirm('<?php echo esc_js( __( 'Wipe every Hyperdrive-built data source (lookup, dependency map, restrictable set, sitewide plugins, MU payload, rebuild timestamp). Counters drop to zero. Use this to verify a fresh rebuild really happened: clear → confirm 0 → Rebuild Now → confirm N. Continue?', 'samybaxy-hyperdrive' ) ); ?>');">
+                            <?php esc_html_e( 'Clear Caches', 'samybaxy-hyperdrive' ); ?>
                         </button>
                     </form>
                     <span style="color: #666; font-size: 13px;">
@@ -846,8 +917,11 @@ class SHYPDR_Main {
                     </span>
                 </div>
                 <p class="description">
-                    <?php esc_html_e( '"Rebuild Requirements Cache" analyzes published pages only.', 'samybaxy-hyperdrive' ); ?>
-                    <?php esc_html_e( '"Rebuild Now (All)" forces every Hyperdrive data source to rebuild synchronously — use this on hosts where WP-Cron is unreliable (e.g. WP Engine) and the menu cart or other header widgets aren\'t showing.', 'samybaxy-hyperdrive' ); ?>
+                    <strong><?php esc_html_e( 'Rebuild Now', 'samybaxy-hyperdrive' ); ?></strong>
+                    <?php esc_html_e( '— forces every Hyperdrive data source to rebuild synchronously: dependency map, restrictable plugins, sitewide-plugins set, per-URL requirements lookup, and the MU-loader payload. Use this on hosts where WP-Cron is unreliable (e.g. WP Engine), after installing or removing plugins, or whenever the menu cart / header widgets are missing.', 'samybaxy-hyperdrive' ); ?>
+                    <br>
+                    <strong><?php esc_html_e( 'Clear Caches', 'samybaxy-hyperdrive' ); ?></strong>
+                    <?php esc_html_e( '— wipes every Hyperdrive-built data source to zero. Use it as a sanity check: clear → confirm counters read 0 → Rebuild Now → confirm counters read N. Without a baseline of zero, you cannot tell whether a rebuild actually changed the data or just stamped the timestamp.', 'samybaxy-hyperdrive' ); ?>
                 </p>
 
                 <?php

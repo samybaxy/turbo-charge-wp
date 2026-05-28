@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: Revolutionary plugin filtering - Load only essential plugins per page. Requires MU-plugin loader for actual performance gains.
- * Version: 6.1.8
+ * Version: 6.1.9
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -21,7 +21,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Core initialization constants
-define('SHYPDR_VERSION', '6.1.8');
+define('SHYPDR_VERSION', '6.1.9');
 define('SHYPDR_DIR', plugin_dir_path(__FILE__));
 define('SHYPDR_URL', plugin_dir_url(__FILE__));
 define('SHYPDR_BASENAME', plugin_basename(__FILE__));
@@ -219,57 +219,9 @@ function shypdr_activation_handler() {
  * Safe to re-run; each rebuilder is idempotent.
  */
 function shypdr_run_deferred_initial_scan() {
-    // Raise the time budget for this background task. Default PHP-FPM
-    // timeout (30-60s) is too short for a 150+ plugin sweep.
-    if (function_exists('wp_raise_memory_limit')) {
-        wp_raise_memory_limit('admin');
+    if (function_exists('shypdr_run_full_rebuild')) {
+        shypdr_run_full_rebuild(true);
     }
-    if (function_exists('set_time_limit')) {
-        @set_time_limit(300);
-    }
-
-    try {
-        if (class_exists('SHYPDR_Dependency_Detector')) {
-            SHYPDR_Dependency_Detector::rebuild_dependency_map();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] dependency map rebuild failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Plugin_Scanner')) {
-            SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] restrictable data rebuild failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Requirements_Cache')) {
-            SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] sitewide plugins rebuild failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Requirements_Cache')) {
-            SHYPDR_Requirements_Cache::write_mu_payload();
-            SHYPDR_Requirements_Cache::mark_rebuild_completed();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] payload write failed: ' . $e->getMessage());
-        }
-    }
-
-    // Clear the needs-setup flag now that the heavy work is done.
     delete_option('shypdr_needs_setup');
 }
 add_action('shypdr_deferred_initial_scan', 'shypdr_run_deferred_initial_scan');
@@ -279,56 +231,16 @@ add_action('shypdr_deferred_initial_scan', 'shypdr_run_deferred_initial_scan');
  * - Plugin activation/deactivation (handle_plugin_change)
  * - Version upgrades (shypdr_check_version_upgrade)
  *
- * Identical body to shypdr_run_deferred_initial_scan but does NOT clear
- * the needs_setup flag.
+ * Thin wrapper around shypdr_run_full_rebuild() to keep all rebuild paths
+ * (manual button, activation cron, plugin-change cron, upgrade cron) in
+ * lockstep. Previously this function diverged from shypdr_run_full_rebuild
+ * by omitting the URL-requirements lookup rebuild, which left the lookup
+ * table empty after every plugin activation/deactivation until the next
+ * save_post slowly refilled it (or the user clicked Rebuild Now).
  */
 function shypdr_run_deferred_rebuild() {
-    if (function_exists('wp_raise_memory_limit')) {
-        wp_raise_memory_limit('admin');
-    }
-    if (function_exists('set_time_limit')) {
-        @set_time_limit(300);
-    }
-
-    try {
-        if (class_exists('SHYPDR_Dependency_Detector')) {
-            SHYPDR_Dependency_Detector::rebuild_dependency_map();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] deferred rebuild: dependency map failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Plugin_Scanner')) {
-            SHYPDR_Plugin_Scanner::rebuild_restrictable_data();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] deferred rebuild: restrictable data failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Requirements_Cache')) {
-            SHYPDR_Requirements_Cache::rebuild_sitewide_plugins();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] deferred rebuild: sitewide plugins failed: ' . $e->getMessage());
-        }
-    }
-
-    try {
-        if (class_exists('SHYPDR_Requirements_Cache')) {
-            SHYPDR_Requirements_Cache::write_mu_payload();
-            SHYPDR_Requirements_Cache::mark_rebuild_completed();
-        }
-    } catch (\Throwable $e) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[shypdr] deferred rebuild: payload write failed: ' . $e->getMessage());
-        }
+    if (function_exists('shypdr_run_full_rebuild')) {
+        shypdr_run_full_rebuild(true);
     }
 }
 add_action('shypdr_deferred_rebuild', 'shypdr_run_deferred_rebuild');
@@ -412,6 +324,18 @@ function shypdr_run_full_rebuild($include_heavy = true) {
         }
     } catch (\Throwable $e) {
         $results['sitewide'] = 'error: ' . $e->getMessage();
+    }
+
+    // Per-URL requirements lookup. Re-analyzes published posts/pages/products
+    // for shortcodes, blocks, Elementor widgets, and page templates. Bounded
+    // by LOOKUP_MAX_ENTRIES so the resulting option stays within the
+    // autoload budget on large sites.
+    try {
+        if (class_exists('SHYPDR_Requirements_Cache')) {
+            $results['lookup'] = SHYPDR_Requirements_Cache::rebuild_lookup_table();
+        }
+    } catch (\Throwable $e) {
+        $results['lookup'] = 'error: ' . $e->getMessage();
     }
 
     try {

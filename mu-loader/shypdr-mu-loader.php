@@ -3,7 +3,7 @@
  * Plugin Name: Samybaxy's Hyperdrive - MU Loader
  * Plugin URI: https://github.com/samybaxy/samybaxy-hyperdrive
  * Description: High-performance plugin filter using blacklist architecture. Loads everything by default, only restricts known-heavy plugins when not needed. Requires the main Samybaxy's Hyperdrive plugin.
- * Version: 6.1.8
+ * Version: 6.1.9
  * Author: samybaxy
  * Author URI: https://github.com/samybaxy
  * License: GPL v2 or later
@@ -36,7 +36,7 @@ if (!defined('ABSPATH')) {
 // Define constants FIRST so main plugin knows MU-loader is installed
 if (!defined('SHYPDR_MU_LOADER_ACTIVE')) {
     define('SHYPDR_MU_LOADER_ACTIVE', true);
-    define('SHYPDR_MU_LOADER_VERSION', '6.1.8');
+    define('SHYPDR_MU_LOADER_VERSION', '6.1.9');
 }
 
 // CRITICAL: Never filter on admin, AJAX, REST, CRON, CLI
@@ -113,7 +113,6 @@ if (!$shypdr_warming && isset($_SERVER['HTTP_USER_AGENT'])) {
         'lscache_runner',
         'lscache_walker',
         'lsrunner',
-        'lscache_runner',
         'Cache Crawler',
         'cache-warmer',
         'Super Cache Preload',
@@ -299,16 +298,17 @@ class SHYPDR_Early_Filter {
             self::$filtered = true;
             self::$filtering_active = false;
 
-            // Prevent persistent object caches (e.g., WP Engine Redis) from
-            // storing the filtered list under the 'active_plugins' key. Without
-            // this, a subsequent admin request that hits the cache gets the
-            // reduced list, making filtered plugins appear fully deactivated.
-            wp_cache_delete('active_plugins', 'options');
-            wp_cache_delete('alloptions', 'options');
+            // WordPress's object cache stores the RAW (pre-filter) option
+            // value, so the filtered active_plugins list never enters the
+            // alloptions cache — no defensive wp_cache_delete needed. The
+            // delete used in 6.1.x was actively harmful: it invalidated
+            // the alloptions cache key on every cache-miss frontend request,
+            // forcing the next get_option() to rehit the DB on hosts with
+            // a persistent object cache (Redis on WP Engine, etc.).
 
             return self::$loaded_plugins;
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             self::$filtering_active = false;
             return $plugins;
         }
